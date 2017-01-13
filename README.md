@@ -14,7 +14,7 @@ This should return this: <br>
 
 In ImperiHome choose Settings, My systems, Add a new system.
 as Local API Base Url enter : <br><code>http://[openLuup IP]:3480/cgi/imperihome.lua?query=</code><p>
-If you can setup remote access as described below, enter as External API Base Url enter : <br><code>http://[your dataplicity workhome url]/cgi/imperihome.lua?query=</code>
+If you can setup remote access as described below, enter as External API Base Url enter : <br><code>http://[your dataplicity wormhole url]/cgi/imperihome.lua?query=</code>
 
 It should find the system with 88800000 as system name.
 Set the Connection Mode to Force Local.
