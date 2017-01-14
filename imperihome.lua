@@ -37,14 +37,15 @@ Cat/Sub cat	Device type string		Description
 
 These standards can be overruled based on the device schema.
 
+Scenes are supported.
+
 ]]
 local luup = require "openLuup.luup"  -- Gives all Vera luup functionality
 local json = require "openLuup.json"
 
-
 -- SIDs for devices we support
 local SIDS = {
-    HA = "urn:micasaverde-com:serviceId:HaDevice1",
+    HA = "urn:micasaverde-com:serviceId:HomeAutomationGateway1",
     Switch = "urn:upnp-org:serviceId:SwitchPower1",
     Dimmer = "urn:upnp-org:serviceId:Dimming1",
     Sensor = "urn:micasaverde-com:serviceId:SecuritySensor1",
@@ -85,16 +86,15 @@ local function buildDeviceParameter(k,v)
 end
 -- Return an ISS paramters object
 local function buildDeviceParamtersObject(id,params)
-	-- See if we are passed a function to use
-	if type(params) == "function" then return params(id) end
-	-- No, then build from object
 	local p_t = {}
 	local pid = 1
 	for key, prm_t in pairs(params) do
 		local val
 		if type(prm_t) == "string" then
 			val = prm_t
-		else
+		elseif type(prm_t) == "function" then 
+			val = prm_t(id)
+		else	
 			val = luup.variable_get(prm_t[1], prm_t[2], id)
 		end	
 		if val and val ~= "" then
@@ -104,7 +104,14 @@ local function buildDeviceParamtersObject(id,params)
 	end    
 	return p_t
 end
--- Some special devices we do at schema level
+--[[Some special devices we do at schema level
+	Schema definition four parts:
+		the Vera device Schema (aka json device_type)
+		the ISS device type
+		an array of the ISS device paramters for the /devices query
+		an array of the ISS device actions.
+	The paramerts and actions arrays can have a fixed string value, a Vera SID and paramter to use for luup.get_value, or a function definition to get the value.
+]]
 local schemaMap = {}
 -- Add a definition to the devMap table
 local function devSchema_Insert(idx, typ, par, act)
@@ -118,24 +125,27 @@ devSchema_Insert(SCHEMAS.SM_Gas, "DevGenericSensor",
 				 { Value = { SIDS.SM_Gas, "Flow" }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png", unit = "l/h"})
 -- Add Schema level control for the Harmony Hub Plugin
 devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",  
-				function(id)
-					local p_t = {}
-					local curActDesc = ""
-					local choices = ""
-					local curActID = luup.variable_get(SIDS.Harmony, "CurrentActivityID", id)
-					for bn = 1,25 do
-						local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
-						local actID = luup.variable_get(SIDS.Harmony, "ActivityID"..bn, id)
-						if actDesc and actDesc ~= "" then
-							choices = choices ..actDesc .. ","
-							if actID == curActID then curActDesc = actDesc end
-						end    
-					end
-					p_t[1] = buildDeviceParameter("defaultIcon", "https://raw.githubusercontent.com/reneboer/vera-Harmony-Hub/master/icons/Harmony.png")
-					if curActDesc ~= "" then p_t[2] = buildDeviceParameter("Value", curActDesc) end	
-					if choices ~= "" then p_t[3] = buildDeviceParameter("Choices", choices:sub(1, -2)) end	
-					return p_t
-				end,
+				{ Choices = function(id)
+						local choices = ""
+						for bn = 1,25 do
+							local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
+							if actDesc and actDesc ~= "" then
+								choices = choices ..actDesc .. ","
+							end    
+						end
+						if choices ~= "" then choices = choices:sub(1, -2) end	
+						return choices
+					end,
+				  Value = function(id)
+						local curActID = luup.variable_get(SIDS.Harmony, "CurrentActivityID", id)
+						for bn = 1,25 do
+							local actID = luup.variable_get(SIDS.Harmony, "ActivityID"..bn, id)
+							local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
+							if actID == curActID then return actDesc end
+						end
+						return ""
+					end,
+				  defaultIcon = "https://raw.githubusercontent.com/reneboer/vera-Harmony-Hub/master/icons/Harmony.png" },
 				{ ["setChoice"] = function(id, param)
 					local a_t = {}
 					local param = param or ""
@@ -148,6 +158,7 @@ devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",
 								a_t[2] = "StartActivity"
 								a_t[3] = "newActivityID"
 								a_t[4] = actID
+								return a_t
 							end	
 						end
 					end	
@@ -155,18 +166,16 @@ devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",
 				end }
 	)
 devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", 
-				function(id)
-					local p_t = {}
-					local choices = ""
-					for bn = 1,25 do
-						local actDesc = luup.variable_get(SIDS.HarmonyDev, "CommandDesc"..bn, id)
-						local actID = luup.variable_get(SIDS.HarmonyDev, "CommandID"..bn, id)
-						if actDesc and actDesc ~= "" then choices = choices ..actDesc .. "," end    
-					end
-					p_t[1] = buildDeviceParameter("defaultIcon", "https://raw.githubusercontent.com/reneboer/vera-Harmony-Hub/master/icons/Harmony.png")
-					if choices ~= "" then p_t[2] = buildDeviceParameter("Choices", choices:sub(1, -2)) end	
-					return p_t
-				end,
+				{ Choices = function(id)
+						local choices = ""
+						for bn = 1,25 do
+							local actDesc = luup.variable_get(SIDS.HarmonyDev, "CommandDesc"..bn, id)
+							if actDesc and actDesc ~= "" then choices = choices ..actDesc .. "," end    
+						end
+						if choices ~= "" then choices = choices:sub(1, -2) end	
+						return choices
+					end,
+					defaultIcon = "https://raw.githubusercontent.com/reneboer/vera-Harmony-Hub/master/icons/Harmony.png" },
 				{ ["setChoice"] = function(id, param)
 					local a_t = {}
 					local param = param or ""
@@ -179,6 +188,7 @@ devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch",
 								a_t[2] = "SendDeviceCommand"
 								a_t[3] = "Command"
 								a_t[4] = actID
+								return a_t
 							end	
 						end
 					end	
@@ -187,7 +197,14 @@ devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch",
 	)
 devSchema_Insert(SCHEMAS.MSwitch,"DevMultiSwitch", {}, {})
 
--- mapping between ImperiHome ISS and Vera device category and subcategory_num
+--[[Mapping between ImperiHome ISS and Vera device category and subcategory_num
+	Map definition has four parts:
+		the Vera device category and sub_category. Concatenated to c_s
+		the ISS device type
+		an array of the ISS device paramters for the /devices query
+		an array of the ISS device actions.
+	The paramerts and actions arrays can have a fixed string value, a Vera SID and paramter to use for luup.get_value, or a function definition to get the value.
+]]
 local devMap = {}
 -- Add a definition to the devMap table
 local function devMap_Insert(cat, sub_cat, typ, par, act)
@@ -230,6 +247,7 @@ devMap_Insert(8,1, "DevShutter", { Level = { SIDS.Dimmer, "LoadLevelStatus" }, s
 															a_t[2] = "Down"
 														end
 														a_t[4] = a_t[2]
+														return a_t
 													 end
 								} )  
 devMap_Insert(12,0, "DevGenericSensor", { Value = { SIDS.Generic, "CurrentLevel" }})
@@ -246,7 +264,7 @@ function ISS_GetSystem()
 	res.id = tostring(luup.pk_accesspoint)
 	res.apiversion = 1
 	res.success = true
-	return res
+	return resprint()
 end
 
 -- Get the rooms details
@@ -290,16 +308,27 @@ function ISS_GetDevices()
 			-- For special types we want to map based on schema
 			local fnd, issType = findSchema(dev.device_type)
 			if not fnd then
+				-- Map based on category and sub-category
 				issType = devMap[dev.category_num..'_'..dev.subcategory_num]
 				if not issType then issType = devMap[dev.category_num..'_0'] end
 			end	
+			-- If found, build the ISS device definition
 			if issType then
 				local d = buildDeviceDescription(id, dev.description, dev.room_num, issType.type)
-				d.params = buildDeviceParamtersObject(id, issType.params)
+				if issType.params then d.params = buildDeviceParamtersObject(id, issType.params) end
 				res.devices[did] = d
 				did = did + 1
 			end	
 		end
+	end
+	-- Add scenes
+	for id, scn in pairs(luup.scenes) do
+		-- Ignore the scenes created by VeraBridge
+	    if tonumber(id) < 10000 then
+			local d = buildDeviceDescription(id, scn.description, scn.room_num, "DevScene")
+			res.devices[did] = d
+			did = did + 1
+		end	
 	end
 	res.success = true
 	return res
@@ -314,30 +343,44 @@ function ISS_SendCommand(devid, action, param)
 		return res
 	end	
 	local id = tonumber(devid) or 0
-	local dev = luup.devices[id]
-	if dev then
-		local fnd, issType = findSchema(dev.device_type)
-		if not fnd then
-			issType = devMap[dev.category_num..'_'..dev.subcategory_num]
-			if not issType then issType = devMap[dev.category_num..'_0'] end
-		end	
-		if issType then
-			local act_t = issType.actions[action]
-			if act_t then
-				if type(act_t) == "function" then
-					act_t = act_t(id, param, issType)
-				else
-					act_t[4] = tostring(param) or ""
-				end	
-				local prm = {}
-				if act_t[3] and (act_t[4] ~= "") then prm[act_t[3]] = act_t[4] end
-				luup.call_action(act_t[1],act_t[2],prm,id)
-				res.success = true
-				res.errormsg=""
+	if action == "launchScene" then
+		-- Action is for a schene
+		luup.call_action(SIDS.HA,"RunScene",{ SceneNum = tostring(id) },0)
+		res.success = true
+		res.errormsg=""
+	else
+		local dev = luup.devices[id]
+		if dev then
+			-- See if we map on the device schema
+			local fnd, issType = findSchema(dev.device_type)
+			if not fnd then
+				-- try to map on the device category and sub-category
+				issType = devMap[dev.category_num..'_'..dev.subcategory_num]
+				if not issType then issType = devMap[dev.category_num..'_0'] end
+			end	
+			-- If found call the Vera action		
+			if issType then
+				local act_t = issType.actions[action]
+				if act_t then
+					if type(act_t) == "function" then
+						act_t = act_t(id, param)
+					else
+						act_t[4] = tostring(param) or ""
+					end	
+					local prm = {}
+					if act_t[3] and (act_t[4] ~= "") then prm[act_t[3]] = act_t[4] end
+					luup.call_action(act_t[1],act_t[2],prm,id)
+					res.success = true
+					res.errormsg=""
+				else	
+					res.errormsg="Device action "..action.." not supported." 
+				end
+			else	
+				res.errormsg="Device "..devid.." not supported." 
 			end
+		else	
+			res.errormsg="DeviceID "..devid.." not found." 
 		end
-	else	
-		res.errormsg="DeviceID "..devid.." not found." 
 	end	
 	return res
 end
@@ -367,13 +410,17 @@ function run(wsapi_env)
 		elseif func == "devices" then
 			pcstat, issRes = pcall(ISS_GetDevices)
 		else
-			local devid, action, param = func:match("devices/(%d+)/action/(%w+)/(.*)")
+			local devid, act_par = func:match("devices/(%d+)/action/(.*)")
+			local action, param = act_par:match("(%w+)/(.*)")
+			if action == nil then action = act_par end
 			if devid and action then
 				pcstat, issRes = pcall(ISS_SendCommand, devid, action, param)
 			else
 				local devid, param, startdate, enddate = func:match("devices/(%d+)/(%w+)/histo/(%d+)/(%d+)")
 				if devid and param then
 					pcstat, issRes = pcall(ISS_SendGraph, devid, param, startdate, enddate)
+				else	
+					status, return_content = 404, "failed: unknown query "..(func or "???")
 				end
 			end      
 		end
