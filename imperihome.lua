@@ -54,6 +54,8 @@ local SIDS = {
     Humidity = "urn:micasaverde-com:serviceId:HumiditySensor1",
     Cover = "urn:upnp-org:serviceId:WindowCovering1",
 	Generic = "urn:micasaverde-com:serviceId:GenericSensor1",
+	DoorLock = "urn:micasaverde-com:serviceId:DoorLock1",
+	WindowCovering = "urn:upnp-org:serviceId:WindowCovering1",
 	Harmony = "urn:rboer-com:serviceId:Harmony1",
 	HarmonyDev = "urn:rboer-com:serviceId:HarmonyDevice1",
 	SM_Gas = "urn:rboer-com:serviceId:SmartMeterGAS1",
@@ -83,6 +85,9 @@ local function buildDeviceParameter(k,v)
 end
 -- Return an ISS paramters object
 local function buildDeviceParamtersObject(id,params)
+	-- See if we are passed a function to use
+	if type(params) == "function" then return params(id) end
+	-- No, then build from object
 	local p_t = {}
 	local pid = 1
 	for key, prm_t in pairs(params) do
@@ -102,18 +107,18 @@ end
 -- Some special devices we do at schema level
 local schemaMap = {}
 -- Add a definition to the devMap table
-local function devSchema_Insert(idx, typ, par, act, par_f, act_f)
+local function devSchema_Insert(idx, typ, par, act)
 	schemaMap[idx] = {}
 	schemaMap[idx].type = typ
 	if par then schemaMap[idx].params = par end
 	if act then schemaMap[idx].actions = act end
-	if par_f then schemaMap[idx].params_func = par_f end
-	if act_f then schemaMap[idx].actions_func = act_f end
 end    
+-- Add scheme level control for the SmartMeter plugin Gas flow meter readings
 devSchema_Insert(SCHEMAS.SM_Gas, "DevGenericSensor", 
 				 { Value = { SIDS.SM_Gas, "Flow" }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png", unit = "l/h"})
-devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch", nil, nil, 
-				function(id, issType)
+-- Add Schema level control for the Harmony Hub Plugin
+devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",  
+				function(id)
 					local p_t = {}
 					local curActDesc = ""
 					local choices = ""
@@ -131,10 +136,10 @@ devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch", nil, nil,
 					if choices ~= "" then p_t[3] = buildDeviceParameter("Choices", choices:sub(1, -2)) end	
 					return p_t
 				end,
-				function(id, action, param, issType)
+				{ ["setChoice"] = function(id, param)
 					local a_t = {}
 					local param = param or ""
-					if action == "setChoice" and param ~= "" then
+					if param ~= "" then
 						for bn = 1,25 do
 							local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
 							if actDesc == param then 
@@ -147,9 +152,10 @@ devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch", nil, nil,
 						end
 					end	
 					return a_t
-				end)
-devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", nil, nil,
-				function(id, issType)
+				end }
+	)
+devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", 
+				function(id)
 					local p_t = {}
 					local choices = ""
 					for bn = 1,25 do
@@ -161,10 +167,10 @@ devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", nil, nil,
 					if choices ~= "" then p_t[2] = buildDeviceParameter("Choices", choices:sub(1, -2)) end	
 					return p_t
 				end,
-				function(id, action, param, issType)
+				{ ["setChoice"] = function(id, param)
 					local a_t = {}
 					local param = param or ""
-					if action == "setChoice" and param ~= "" then
+					if param ~= "" then
 						for bn = 1,25 do
 							local actDesc = luup.variable_get(SIDS.HarmonyDev, "CommandDesc"..bn, id)
 							if actDesc == param then 
@@ -177,7 +183,8 @@ devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", nil, nil,
 						end
 					end	
 					return a_t
-				end)
+				end} 
+	)
 devSchema_Insert(SCHEMAS.MSwitch,"DevMultiSwitch", {}, {})
 
 -- mapping between ImperiHome ISS and Vera device category and subcategory_num
@@ -191,19 +198,40 @@ local function devMap_Insert(cat, sub_cat, typ, par, act)
         if par then devMap[idx].params = par end
         if act then devMap[idx].actions = act end
     end
-end    
+end 
+-- Some common paramters definitions
+local sensParams = { Armed = { SIDS.Sensor, "Armed" }, Tripped = { SIDS.Sensor, "Tripped"},	lasttrip = { SIDS.Sensor, "LastTrip"}, armable = "1" }
+-- Some common paramters definitions
+local sensActions = { ["setArmed"] = { SIDS.Sensor, "SetArmed", "newArmedValue" }	}			
+-- Fill mapping table
 devMap_Insert(2,0, "DevDimmer", { Status = { SIDS.Switch, "Status" }, Level = { SIDS.Dimmer, "LoadLevelStatus" }, Energy = { SIDS.Energy, "Watts"}},
-								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" }}	)
+								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" },
+								  ["setStatus"] = { SIDS.Switch, "SetTarget", "newTarget" }
+								})
 devMap_Insert(3,0, "DevSwitch", { Status = { SIDS.Switch, "Status" }, Energy = { SIDS.Energy, "Watts"}},
 								{ ["setStatus"] = { SIDS.Switch, "SetTarget", "newTarget" }} )
-local sensParams = { Armed = { SIDS.Sensor, "Armed" }, Tripped = { SIDS.Sensor, "Tripped"},	lasttrip = { SIDS.Sensor, "LastTrip"}, armable = "1" }
-local sensActions = { ["setArmed"] = { SIDS.Sensor, "SetArmed", "newArmedValue" }	}			
 devMap_Insert(4,0, "DevDoor", sensParams,sensActions)
 devMap_Insert(4,1, "DevDoor", sensParams,sensActions)
 devMap_Insert(4,2, "DevFlood", sensParams,sensActions)
 devMap_Insert(4,3, "DevMotion", sensParams,sensActions)
 devMap_Insert(4,3, "DevSmoke", sensParams,sensActions)
 devMap_Insert(4,3, "DevCO2Alert", sensParams,sensActions)
+devMap_Insert(7,0, "DevLock", { Status = { SIDS.DoorLock, "Status" }}, { ["setStatus"] = { SIDS.DoorLock, "SetTarget", "newTargetValue" }} )
+devMap_Insert(8,1, "DevShutter", { Level = { SIDS.Dimmer, "LoadLevelStatus" }, stopable = "1", pulsable = "1"}, 
+								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" }, 
+								  ["stopShutter"] = { SIDS.WindowCovering, "Stop", "action" },
+								  ["pulseShutter"] = function(id, param)
+														local a_t = {}
+														a_t[1] = SIDS.WindowCovering
+														a_t[3] = "action"
+														if param == "up" then
+															a_t[2] = "Up"
+														else
+															a_t[2] = "Down"
+														end
+														a_t[4] = a_t[2]
+													 end
+								} )  
 devMap_Insert(12,0, "DevGenericSensor", { Value = { SIDS.Generic, "CurrentLevel" }})
 devMap_Insert(16,0, "DevHygrometry", { Value = { SIDS.Humidity, "CurrentLevel" }})
 devMap_Insert(17,0, "DevTemperature", {	Value = { SIDS.Temp, "CurrentTemperature" }})
@@ -261,25 +289,15 @@ function ISS_GetDevices()
 		if not (dev.hidden or dev.invisible or id >= 10000) then
 			-- For special types we want to map based on schema
 			local fnd, issType = findSchema(dev.device_type)
-			if fnd then
-				local d = buildDeviceDescription(id, dev.description, dev.room_num, issType.type)
-				if issType.params_func then 
-					d.params = issType.params_func(id, issType) 
-				else	
-					-- We just have simple paramters
-					d.params = buildDeviceParamtersObject(id, issType.params)
-				end
-				res.devices[did] = d
-				did = did + 1
-			else
+			if not fnd then
 				issType = devMap[dev.category_num..'_'..dev.subcategory_num]
 				if not issType then issType = devMap[dev.category_num..'_0'] end
-				if issType then
-					local d = buildDeviceDescription(id, dev.description, dev.room_num, issType.type)
-					d.params = buildDeviceParamtersObject(id, issType.params)
-					res.devices[did] = d
-					did = did + 1
-				end
+			end	
+			if issType then
+				local d = buildDeviceDescription(id, dev.description, dev.room_num, issType.type)
+				d.params = buildDeviceParamtersObject(id, issType.params)
+				res.devices[did] = d
+				did = did + 1
 			end	
 		end
 	end
@@ -304,14 +322,13 @@ function ISS_SendCommand(devid, action, param)
 			if not issType then issType = devMap[dev.category_num..'_0'] end
 		end	
 		if issType then
-			local act_t 
-			if issType.actions_func then
-				act_t = issType.actions_func(id, action, param, issType)
-			else
-				act_t = issType.actions[action]
-				act_t[4] = tostring(param) or ""
-			end	
+			local act_t = issType.actions[action]
 			if act_t then
+				if type(act_t) == "function" then
+					act_t = act_t(id, param, issType)
+				else
+					act_t[4] = tostring(param) or ""
+				end	
 				local prm = {}
 				if act_t[3] and (act_t[4] ~= "") then prm[act_t[3]] = act_t[4] end
 				luup.call_action(act_t[1],act_t[2],prm,id)
