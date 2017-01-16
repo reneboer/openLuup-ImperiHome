@@ -1,7 +1,7 @@
 # openLuup-ImperiHome
-A simple LUA CGI file to make openLuup talk ImperiHome ISS
+A simple LUA CGI file to make openLuup talk ImperiHome ISS. Upload imperihome.lua to the /etc./cmh-ludl/cgi folder of your openLuup device.
 
-This first version pulls the status of several device types. It can arm and disarm security sensors, it should be able to toggle a switch and control a dimmer.
+This version pulls the status of most Vera device types. It can arm and disarm security sensors, it should be able to toggle a switch and control a dimmer, thermostats etc. It also supports the Harmony Hub plugin.
 
 First you must upload the imperihome.lua file to your openLuup system in the /etc/cmh-ludl/cgi folder. You can see if it works by entering this URL in your browser:<br><code>http://[openLuup IP]:3480/cgi/imperihome.lua?query=/system</code>
 
