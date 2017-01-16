@@ -3,6 +3,9 @@
 module(..., package.seeall)
 
 --[[
+Version 0.4 16 Januari 2017
+Author Rene Boer
+
 Standard Vera Device types in ISS we can handle right now
 
 Cat/Sub cat	Device type string		Description
@@ -31,17 +34,22 @@ Cat/Sub cat	Device type string		Description
 3			DevSwitch 				Standard on/off switch 
 17			DevTemperature 			Temperature sensor 
 			DevTempHygro 			Temperature and Hygrometry combined sensor 
-			DevThermostat 			Thermostat 
+5/1			DevThermostat 			HVAC
+5/2			DevThermostat 			Heater 
 28			DevUV 					UV sensor 
 			DevWind 				Wind sensor 
 
-These standards can be overruled based on the device schema.
+These standards can be overruled based on the device schema. Currnetly supported:
+- Smart Meter Gas readings
+- Harmony Hub
 
 Scenes are supported.
 
 ]]
 local luup = require "openLuup.luup"  -- Gives all Vera luup functionality
 local json = require "openLuup.json"
+
+local includeVeraBridge = false	-- When set to flase the devices and scenes created via a VeraBridge will not be included.
 
 -- SIDs for devices we support
 local SIDS = {
@@ -50,13 +58,18 @@ local SIDS = {
     Dimmer = "urn:upnp-org:serviceId:Dimming1",
     Sensor = "urn:micasaverde-com:serviceId:SecuritySensor1",
     Energy = "urn:micasaverde-com:serviceId:EnergyMetering1",
-    Light = "urn:schemas-micasaverde-com:service:LightSensor:1",
+    Light = "urn:micasaverde-com:serviceId:LightSensor1",
     Temp = "urn:upnp-org:serviceId:TemperatureSensor1",
     Humidity = "urn:micasaverde-com:serviceId:HumiditySensor1",
     Cover = "urn:upnp-org:serviceId:WindowCovering1",
 	Generic = "urn:micasaverde-com:serviceId:GenericSensor1",
 	DoorLock = "urn:micasaverde-com:serviceId:DoorLock1",
 	WindowCovering = "urn:upnp-org:serviceId:WindowCovering1",
+	HVAC_UOM1 = "urn:upnp-org:serviceId:HVAC_UserOperatingMode1",
+	HVAC_FM = "urn:upnp-org:serviceId:HVAC_FanOperatingMode1",
+	HVAC_TEMP = "urn:upnp-org:serviceId:TemperatureSetpoint1",
+	HVAC_TEMP_H = "urn:upnp-org:serviceId:TemperatureSetpoint1_Heat",
+	HVAC_TEMP_C = "urn:upnp-org:serviceId:TemperatureSetpoint1_Cool",
 	Harmony = "urn:rboer-com:serviceId:Harmony1",
 	HarmonyDev = "urn:rboer-com:serviceId:HarmonyDevice1",
 	SM_Gas = "urn:rboer-com:serviceId:SmartMeterGAS1",
@@ -90,16 +103,18 @@ local function buildDeviceParamtersObject(id,params)
 	local pid = 1
 	for key, prm_t in pairs(params) do
 		local val
-		if type(prm_t) == "string" then
-			val = prm_t
-		elseif type(prm_t) == "function" then 
-			val = prm_t(id)
-		else	
-			val = luup.variable_get(prm_t[1], prm_t[2], id)
-		end	
-		if val and val ~= "" then
-			p_t[pid] = buildDeviceParameter(key, val)
-			pid = pid + 1
+		if prm_t then
+			if type(prm_t) == "string" then
+				val = prm_t
+			elseif type(prm_t) == "function" then 
+				val = prm_t(id)
+			else	
+				val = luup.variable_get(prm_t[1], prm_t[2], id)
+			end	
+			if val and val ~= "" then
+				p_t[pid] = buildDeviceParameter(key, val)
+				pid = pid + 1
+			end    
 		end    
 	end    
 	return p_t
@@ -183,7 +198,7 @@ devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch",
 						for bn = 1,25 do
 							local actDesc = luup.variable_get(SIDS.HarmonyDev, "CommandDesc"..bn, id)
 							if actDesc == param then 
-								local actID = luup.variable_get(SIDS.HarmonyDev, "CommandID"..bn, id)
+								local actID = luup.variable_get(SIDS.HarmonyDev, "Command"..bn, id)
 								a_t[1] = SIDS.HarmonyDev
 								a_t[2] = "SendDeviceCommand"
 								a_t[3] = "Command"
@@ -233,6 +248,178 @@ devMap_Insert(4,2, "DevFlood", sensParams,sensActions)
 devMap_Insert(4,3, "DevMotion", sensParams,sensActions)
 devMap_Insert(4,3, "DevSmoke", sensParams,sensActions)
 devMap_Insert(4,3, "DevCO2Alert", sensParams,sensActions)
+devMap_Insert(5,1, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature" },
+									  cursetpoint = { SIDS.HVAC_TEMP, "CurrentSetpoint"},
+									  availablemodes = function(id) 	
+													local cmd = luup.variable_get(SIDS.HVAC_UOM1, "ModeStatus", id)
+													if cmd ~= nil then 
+														return "Off,Heat" 
+													else 
+														return nil 
+													end
+												end, 
+									  curmode = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_UOM1, "ModeStatus", id)
+													if cmd == "Off" then 
+														return cmd
+													elseif cmd == "HeatOn" then 
+														return "Heat"
+													else 
+														return nil
+													end
+												end,
+									  availableenergymodes = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_UOM1, "EnergyModeStatus", id)
+													if cmd ~= nil then 
+														return "Normal,Eco" 
+													else 
+														return nil 
+													end
+												end, 
+									  curenergymode = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_UOM1, "EnergyModeStatus", id)
+													if cmd == "Normal" then 
+														return cmd
+													elseif cmd == "EnergySavingsMode" then 
+														return "Eco"
+													else 
+														return nil
+													end
+												end,
+									},
+								{ ["setSetPoint"] = { SIDS.HVAC_TEMP, "SetCurrentSetpoint", "NewCurrentSetpoint" },
+								  ["setMode"] = function(id,param)
+													local a_t = {}
+													a_t[1] = SIDS.HVAC_UOM1
+													a_t[2] = "SetModeTarget"
+													a_t[3] = "NewModeTarget"
+													a_t[4] = a_t[2]
+													if param == "Heat" then 
+														a_t[4] = "HeatOn"
+													else 
+														a_t[4] = "Off"
+													end
+													return a_t
+												end,
+								  ["setEnergyMode"] = function(id,param)
+													local a_t = {}
+													a_t[1] = SIDS.HVAC_UOM1
+													a_t[2] = "SetEnergyModeTarget"
+													a_t[3] = "NewModeTarget"
+													a_t[4] = a_t[2]
+													if param == "Eco" then 
+														a_t[4] = "EnergySavingsMode"
+													else 
+														a_t[4] = "Normal"
+													end
+													return a_t
+												end,
+								} )
+devMap_Insert(5,2, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature" },
+									  cursetpoint = { SIDS.HVAC_TEMP_H, "CurrentSetpoint"},
+									  cursetpoint1 = { SIDS.HVAC_TEMP_C, "CurrentSetpoint"},
+									  availablemodes = "Off,Cool,Heat,Auto", 
+									  curmode = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_UOM1, "ModeStatus", id)
+													if cmd == "Off" then 
+														return cmd
+													elseif cmd == "CoolOn" then 
+														return "Cool"
+													elseif cmd == "HeatOn" then 
+														return "Heat"
+													elseif cmd == "AutoChangeOver" then 
+														return "Auto"
+													else
+														return nil
+													end
+												end,
+									  availablefanmodes = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_FM, "Mode", id)
+													if cmd ~= nil then 
+														return "On,Auto,Cycle" 
+													else 
+														return nil 
+													end
+												end,  
+									  curfanmode = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_FM, "Mode", id)
+													if cmd == "ContinuousOn" then 
+														return "On"
+													elseif cmd == "Auto" then 
+														return cmd
+													elseif cmd == "PeriodicOn" then 
+														return "Cycle"
+													else 
+														return nil
+													end
+												end,
+									  availableenergymodes = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_UOM1, "EnergyModeStatus", id)
+													if cmd ~= nil then 
+														return "Normal,Eco" 
+													else 
+														return nil 
+													end
+												end, 
+									  curenergymode = function(id) 	
+													local cmd = luup.variable_get( SIDS.HVAC_UOM1, "EnergyModeStatus", id)
+													if cmd == "Normal" then 
+														return cmd
+													elseif cmd == "EnergySavingsMode" then 
+														return "Eco"
+													else 
+														return nil
+													end
+												end,
+									},
+								{ ["setSetPoint"] = { SIDS.HVAC_TEMP, "SetCurrentSetpoint", "NewCurrentSetpoint" },
+								  ["setMode"] = function(id,param)
+													local a_t = {}
+													a_t[1] = SIDS.HVAC_UOM1
+													a_t[2] = "SetModeTarget"
+													a_t[3] = "NewModeTarget"
+													a_t[4] = a_t[2]
+													if param == "Heat" then 
+														a_t[4] = "HeatOn"
+													elseif param == "Cool" then 
+														a_t[4] = "CoolOn"
+													elseif param == "Heat" then 
+														a_t[4] = "HeatOn"
+													elseif param == "Auto" then a_t[4] = "AutoChangeOver"
+													else 
+														a_t[4] = "Off"
+													end
+													return a_t
+												end,
+								  ["setEnergyMode"] = function(id,param)
+													local a_t = {}
+													a_t[1] = SIDS.HVAC_UOM1
+													a_t[2] = "SetEnergyModeTarget"
+													a_t[3] = "NewModeTarget"
+													a_t[4] = a_t[2]
+													if param == "Eco" then 
+														a_t[4] = "EnergySavingsMode"
+													else 
+														a_t[4] = "Normal"
+													end
+													return a_t
+												end,
+								  ["setFanMode"] = function(id,param)
+													local a_t = {}
+													a_t[1] = SIDS.HVAC_FM
+													a_t[2] = "SetMode"
+													a_t[3] = "NewMode"
+													a_t[4] = a_t[2]
+													if param == "On" then 
+														a_t[4] = "ContinuousOn"
+													elseif param == "Cycle" then 
+														a_t[4] = "PeriodicOn"
+													else 
+														a_t[4] = "Auto"
+													end
+													return a_t
+												end
+								} )
 devMap_Insert(7,0, "DevLock", { Status = { SIDS.DoorLock, "Status" }}, { ["setStatus"] = { SIDS.DoorLock, "SetTarget", "newTargetValue" }} )
 devMap_Insert(8,1, "DevShutter", { Level = { SIDS.Dimmer, "LoadLevelStatus" }, stopable = "1", pulsable = "1"}, 
 								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" }, 
@@ -278,7 +465,7 @@ function ISS_GetRooms()
 	res.rooms[1] = rm
 	for rn, name in pairs(luup.rooms) do
 		-- Ignore the VeraBride created rooms
-		if string.sub(name,1, 5) ~= "MiOS-" then
+		if includeVeraBridge or string.sub(name,1, 5) ~= "MiOS-" then
 			local rm = {}
 			rm.id = tostring(rn)
 			rm.name = name
@@ -303,8 +490,9 @@ function ISS_GetDevices()
 	local res = {}
 	res.devices = {}
 	for id, dev in pairs(luup.devices) do
-		-- Ignore hidden or invisible devices and those created by VeraBridge.
-		if not (dev.hidden or dev.invisible or id >= 10000) then
+		-- Ignore hidden or invisible devices and those created by VeraBridge unless we want them included.
+		local isDisabled = luup.attr_get("disabled", id)
+		if not (dev.hidden or dev.invisible or isDisabled == 1 or (id >= 10000 and not includeVeraBridge)) then
 			-- For special types we want to map based on schema
 			local fnd, issType = findSchema(dev.device_type)
 			if not fnd then
@@ -324,7 +512,7 @@ function ISS_GetDevices()
 	-- Add scenes
 	for id, scn in pairs(luup.scenes) do
 		-- Ignore the scenes created by VeraBridge
-	    if tonumber(id) < 10000 then
+	    if (tonumber(id) < 10000 or includeVeraBridge) then
 			local d = buildDeviceDescription(id, scn.description, scn.room_num, "DevScene")
 			res.devices[did] = d
 			did = did + 1
@@ -367,11 +555,15 @@ function ISS_SendCommand(devid, action, param)
 					else
 						act_t[4] = tostring(param) or ""
 					end	
-					local prm = {}
-					if act_t[3] and (act_t[4] ~= "") then prm[act_t[3]] = act_t[4] end
-					luup.call_action(act_t[1],act_t[2],prm,id)
-					res.success = true
-					res.errormsg=""
+					if (act_t[1]) then
+						local prm = {}
+						if act_t[3] and (act_t[4] ~= "") then prm[act_t[3]] = act_t[4] end
+						luup.call_action(act_t[1],act_t[2],prm,id)
+						res.success = true
+						res.errormsg=""
+					else
+						res.errormsg="Device action "..action.." paramter(s) not supported." 
+					end
 				else	
 					res.errormsg="Device action "..action.." not supported." 
 				end
