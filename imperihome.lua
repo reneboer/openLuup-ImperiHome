@@ -3,14 +3,14 @@
 module(..., package.seeall)
 
 --[[
-Version 0.5 17 Januari 2017
+Version 0.6 17 Januari 2017
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
 
 Cat/Sub cat	Device type string		Description
 			DevCamera 				MJPEG IP Camera 
-		DevCO2 					CO2 sensor 
+			DevCO2 					CO2 sensor 
 4/5			DevCO2Alert 			CO2 Alert sensor 
 2			DevDimmer 				Dimmable light 
 4/0,1		DevDoor 				Door / window security sensor 
@@ -28,7 +28,7 @@ Cat/Sub cat	Device type string		Description
 			DevPressure 			Pressure sensor 
 			DevRain 				Rain sensor 
 			DevRGBLight 			RGB(W) Light (dimmable) 
-			DevScene 				Scene (launchable) 
+Yes			DevScene 				Scene (launchable) 
 			DevShutter 				Shutter actuator 
 4/4			DevSmoke 				Smoke security sensor 
 3			DevSwitch 				Standard on/off switch 
@@ -136,10 +136,10 @@ local function devSchema_Insert(idx, typ, par, act)
 	if act then schemaMap[idx].actions = act end
 end    
 -- Add scheme level control for the SmartMeter plugin Gas flow meter readings
-devSchema_Insert(SCHEMAS.SM_Gas, "DevGenericSensor", 
+devSchema_Insert(SCHEMAS.SM_Gas, "DevGenericSensor", use_match = false,
 				 { Value = { SIDS.SM_Gas, "Flow" }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png", unit = "l/h"})
 -- Add Schema level control for the Harmony Hub Plugin
-devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",  
+devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",  use_match = true,
 				{ Choices = function(id)
 						local choices = ""
 						for bn = 1,25 do
@@ -180,7 +180,7 @@ devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",
 					return a_t
 				end }
 	)
-devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", 
+devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", use_match = true,
 				{ Choices = function(id)
 						local choices = ""
 						for bn = 1,25 do
@@ -210,7 +210,7 @@ devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch",
 					return a_t
 				end} 
 	)
-devSchema_Insert(SCHEMAS.MSwitch,"DevMultiSwitch", {}, {})
+devSchema_Insert(SCHEMAS.MSwitch,"DevMultiSwitch", use_match = true, {}, {})
 
 --[[Mapping between ImperiHome ISS and Vera device category and subcategory_num
 	Map definition has four parts:
@@ -293,7 +293,6 @@ devMap_Insert(5,1, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature
 													a_t[1] = SIDS.HVAC_UOM1
 													a_t[2] = "SetModeTarget"
 													a_t[3] = "NewModeTarget"
-													a_t[4] = a_t[2]
 													if param == "Heat" then 
 														a_t[4] = "HeatOn"
 													else 
@@ -306,7 +305,6 @@ devMap_Insert(5,1, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature
 													a_t[1] = SIDS.HVAC_UOM1
 													a_t[2] = "SetEnergyModeTarget"
 													a_t[3] = "NewModeTarget"
-													a_t[4] = a_t[2]
 													if param == "Eco" then 
 														a_t[4] = "EnergySavingsMode"
 													else 
@@ -378,7 +376,6 @@ devMap_Insert(5,2, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature
 													a_t[1] = SIDS.HVAC_UOM1
 													a_t[2] = "SetModeTarget"
 													a_t[3] = "NewModeTarget"
-													a_t[4] = a_t[2]
 													if param == "Heat" then 
 														a_t[4] = "HeatOn"
 													elseif param == "Cool" then 
@@ -396,7 +393,6 @@ devMap_Insert(5,2, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature
 													a_t[1] = SIDS.HVAC_UOM1
 													a_t[2] = "SetEnergyModeTarget"
 													a_t[3] = "NewModeTarget"
-													a_t[4] = a_t[2]
 													if param == "Eco" then 
 														a_t[4] = "EnergySavingsMode"
 													else 
@@ -409,7 +405,6 @@ devMap_Insert(5,2, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature
 													a_t[1] = SIDS.HVAC_FM
 													a_t[2] = "SetMode"
 													a_t[3] = "NewMode"
-													a_t[4] = a_t[2]
 													if param == "On" then 
 														a_t[4] = "ContinuousOn"
 													elseif param == "Cycle" then 
@@ -477,13 +472,25 @@ function ISS_GetRooms()
 	return res
 end
 -- Search the schemaMap table for the matching schema. Allows for devices like Harmony Hub and MultiSwitch
-local function findSchema(schema)
-    for sk, dev in pairs(schemaMap) do
-        local m,_= sk:gsub("%-", "%%%-")
-        local mtch = schema:match(m)
-        if (mtch ~= nil) then return true, dev end
+-- If no match, look in the devMap for supported Category/sub-category
+local function findDefinition(dev)
+	local schema = dev.device_type
+	-- First try simple map without pattern match
+	local issType = schemaMap[schema]
+	if issType then return true, issType end
+	-- See if we need pattern match
+    for sk, issType in pairs(schemaMap) do
+		if issType.use_match then
+			local m,_= sk:gsub("%-", "%%%-")
+			local mtch = schema:match(m)
+			if (mtch ~= nil) then return true, issType end
+		end	
     end
-    return false
+	-- Next use default based on the device category and sub-category
+	local issType = devMap[dev.category_num..'_'..(dev.subcategory_num or 0)]
+	if not issType then issType = devMap[dev.category_num..'_0'] end
+	if (issType ~= nil) then return issType, dev end
+    return false, nil
 end
 function ISS_GetDevices()
 	local did = 1
@@ -493,15 +500,10 @@ function ISS_GetDevices()
 		-- Ignore hidden or invisible devices and those created by VeraBridge unless we want them included.
 		local isDisabled = luup.attr_get("disabled", id)
 		if not (dev.hidden or dev.invisible or isDisabled == 1 or (id >= 10000 and not includeVeraBridge)) then
-			-- For special types we want to map based on schema
-			local fnd, issType = findSchema(dev.device_type)
-			if not fnd then
-				-- Map based on category and sub-category
-				issType = devMap[dev.category_num..'_'..dev.subcategory_num]
-				if not issType then issType = devMap[dev.category_num..'_0'] end
-			end	
+			-- See if we know how to handle.
+			local fnd, issType = findDefinition(dev)
 			-- If found, build the ISS device definition
-			if issType then
+			if fnd then
 				local d = buildDeviceDescription(id, dev.description, dev.room_num, issType.type)
 				if issType.params then d.params = buildDeviceParamtersObject(id, issType.params) end
 				res.devices[did] = d
@@ -539,15 +541,10 @@ function ISS_SendCommand(devid, action, param)
 	else
 		local dev = luup.devices[id]
 		if dev then
-			-- See if we map on the device schema
-			local fnd, issType = findSchema(dev.device_type)
-			if not fnd then
-				-- try to map on the device category and sub-category
-				issType = devMap[dev.category_num..'_'..dev.subcategory_num]
-				if not issType then issType = devMap[dev.category_num..'_0'] end
-			end	
-			-- If found call the Vera action		
-			if issType then
+			-- See if we know how to handle.
+			local fnd, issType = findDefinition(dev)
+			-- If found, build the ISS device definition
+			if fnd then
 				local act_t = issType.actions[action]
 				if act_t then
 					if type(act_t) == "function" then
@@ -568,7 +565,7 @@ function ISS_SendCommand(devid, action, param)
 					res.errormsg="Device action "..action.." not supported." 
 				end
 			else	
-				res.errormsg="Device "..devid.." not supported." 
+				res.errormsg="Device type "..devid.." not supported." 
 			end
 		else	
 			res.errormsg="DeviceID "..devid.." not found." 
@@ -639,3 +636,4 @@ function run(wsapi_env)
 
 	return status, headers, iterator
 end
+
