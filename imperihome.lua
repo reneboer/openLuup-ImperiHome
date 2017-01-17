@@ -3,15 +3,15 @@
 module(..., package.seeall)
 
 --[[
-Version 0.4 16 Januari 2017
+Version 0.5 17 Januari 2017
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
 
 Cat/Sub cat	Device type string		Description
 			DevCamera 				MJPEG IP Camera 
-4/5			DevCO2 					CO2 sensor 
-			DevCO2Alert 			CO2 Alert sensor 
+		DevCO2 					CO2 sensor 
+4/5			DevCO2Alert 			CO2 Alert sensor 
 2			DevDimmer 				Dimmable light 
 4/0,1		DevDoor 				Door / window security sensor 
 21			DevElectricity 			Electricity consumption sensor 
@@ -246,8 +246,8 @@ devMap_Insert(4,0, "DevDoor", sensParams,sensActions)
 devMap_Insert(4,1, "DevDoor", sensParams,sensActions)
 devMap_Insert(4,2, "DevFlood", sensParams,sensActions)
 devMap_Insert(4,3, "DevMotion", sensParams,sensActions)
-devMap_Insert(4,3, "DevSmoke", sensParams,sensActions)
-devMap_Insert(4,3, "DevCO2Alert", sensParams,sensActions)
+devMap_Insert(4,4, "DevSmoke", sensParams,sensActions)
+devMap_Insert(4,5, "DevCO2Alert", sensParams,sensActions)
 devMap_Insert(5,1, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature" },
 									  cursetpoint = { SIDS.HVAC_TEMP, "CurrentSetpoint"},
 									  availablemodes = function(id) 	
