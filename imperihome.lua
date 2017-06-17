@@ -3,7 +3,7 @@
 module(..., package.seeall)
 
 --[[
-Version 0.6 17 Januari 2017
+Version 0.7 21 Januari 2017
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -56,6 +56,7 @@ local SIDS = {
     HA = "urn:micasaverde-com:serviceId:HomeAutomationGateway1",
     Switch = "urn:upnp-org:serviceId:SwitchPower1",
     Dimmer = "urn:upnp-org:serviceId:Dimming1",
+	Color = "urn:micasaverde-com:serviceId:Color1",
     Sensor = "urn:micasaverde-com:serviceId:SecuritySensor1",
     Energy = "urn:micasaverde-com:serviceId:EnergyMetering1",
     Light = "urn:micasaverde-com:serviceId:LightSensor1",
@@ -76,6 +77,22 @@ local SIDS = {
 	MSwitch = "urn:dcineco-com:serviceId:MSwitch1"
 }
 local SCHEMAS = {
+	BinaryLight = "urn:schemas-upnp-org:device:BinaryLight:1",
+	GenericSensor = "urn:schemas-micasaverde-com:device:GenericSensor:1",
+	DoorSensor = "urn:schemas-micasaverde-com:device:DoorSensor:1",
+	SmokeSensor = "urn:schemas-micasaverde-com:device:SmokeSensor:1",
+	FloodSensor = "urn:schemas-micasaverde-com:device:FloodSensor:1",
+	MotionSensor = "urn:schemas-micasaverde-com:device:MotionSensor:1",
+	TempLeakSensor = "urn:schemas-micasaverde-com:device:TempLeakSensor:1",
+	HumiditySensor = "urn:schemas-micasaverde-com:device:HumiditySensor:1",
+	LightSensor = "urn:schemas-micasaverde-com:device:LightSensor:1",
+	TemperatureSensor = "urn:schemas-micasaverde-com:device:TemperatureSensor:1",
+	PowerMeter = "urn:schemas-micasaverde-com:device:PowerMeter:1",
+	DoorLock = "urn:schemas-micasaverde-com:device:DoorLock:1",
+	DimmableLight = "urn:schemas-upnp-org:device:DimmableLight:1",
+	DimmableRGBLight = "urn:schemas-upnp-org:device:DimmableRGBLight:1",
+	Heater = "urn:schemas-upnp-org:device:Heater:1",
+	WindowCovering = "urn:schemas-micasaverde-com:device:WindowCovering:1",
 	Harmony = "urn:schemas-rboer-com:device:Harmony(%d*):1",
 	HarmonyDev = "urn:schemas-rboer-com:device:HarmonyDevice(%d*)_(%d*):1",
 	SM_Gas = "urn:schemas-rboer-com:device:SmartMeterGAS:1",
@@ -129,17 +146,38 @@ end
 ]]
 local schemaMap = {}
 -- Add a definition to the devMap table
-local function devSchema_Insert(idx, typ, par, act)
+local function devSchema_Insert(idx, mtch, typ, par, act)
 	schemaMap[idx] = {}
+	schemaMap[idx].use_match = mtch
 	schemaMap[idx].type = typ
 	if par then schemaMap[idx].params = par end
 	if act then schemaMap[idx].actions = act end
-end    
+end
+
+-- Some shared paramters and action definitions.
+local sensParams = { Armed = { SIDS.Sensor, "Armed" }, Tripped = { SIDS.Sensor, "Tripped"},	lasttrip = { SIDS.Sensor, "LastTrip"}, armable = "1" }
+local sensActions = { ["setArmed"] = { SIDS.Sensor, "SetArmed", "newArmedValue" }	}			
+
+-- Add standard schema's
+devSchema_Insert(SCHEMAS.DoorLock, false, "DevLock", { Status = { SIDS.DoorLock, "Status" }}, { ["setStatus"] = { SIDS.DoorLock, "SetTarget", "newTargetValue" } )
+devSchema_Insert(SCHEMAS.DimmableRGBLight, false, "DevRGBLight", 
+								{ Status = { SIDS.Switch, "Status" }, 
+								  Level = { SIDS.Dimmer, "LoadLevelStatus" }, 
+								  Energy = { SIDS.Energy, "Watts"},
+								  color = { SIDS.Color, "CurrentColor" }, 
+								  dimmable = "1",
+								  }, 
+								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" },
+								  ["setStatus"] = { SIDS.Switch, "SetTarget", "newTarget" }
+								  ["setColor"] = { SIDS.Color, "SetColorRGB", "newColorRGBTarget" }
+								})
+
 -- Add scheme level control for the SmartMeter plugin Gas flow meter readings
-devSchema_Insert(SCHEMAS.SM_Gas, "DevGenericSensor", use_match = false,
-				 { Value = { SIDS.SM_Gas, "Flow" }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png", unit = "l/h"})
+devSchema_Insert(SCHEMAS.SM_Gas, false, "DevGenericSensor", 
+		{ Value = { SIDS.SM_Gas, "Flow" }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png", unit = "l/h"}
+		)
 -- Add Schema level control for the Harmony Hub Plugin
-devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",  use_match = true,
+devSchema_Insert(SCHEMAS.Harmony, true, "DevMultiSwitch", 
 				{ Choices = function(id)
 						local choices = ""
 						for bn = 1,25 do
@@ -180,7 +218,7 @@ devSchema_Insert(SCHEMAS.Harmony, "DevMultiSwitch",  use_match = true,
 					return a_t
 				end }
 	)
-devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", use_match = true,
+devSchema_Insert(SCHEMAS.HarmonyDev, true, "DevMultiSwitch", 
 				{ Choices = function(id)
 						local choices = ""
 						for bn = 1,25 do
@@ -210,7 +248,7 @@ devSchema_Insert(SCHEMAS.HarmonyDev, "DevMultiSwitch", use_match = true,
 					return a_t
 				end} 
 	)
-devSchema_Insert(SCHEMAS.MSwitch,"DevMultiSwitch", use_match = true, {}, {})
+devSchema_Insert(SCHEMAS.MSwitch, true, "DevMultiSwitch", {}, {})
 
 --[[Mapping between ImperiHome ISS and Vera device category and subcategory_num
 	Map definition has four parts:
@@ -231,10 +269,6 @@ local function devMap_Insert(cat, sub_cat, typ, par, act)
         if act then devMap[idx].actions = act end
     end
 end 
--- Some common paramters definitions
-local sensParams = { Armed = { SIDS.Sensor, "Armed" }, Tripped = { SIDS.Sensor, "Tripped"},	lasttrip = { SIDS.Sensor, "LastTrip"}, armable = "1" }
--- Some common paramters definitions
-local sensActions = { ["setArmed"] = { SIDS.Sensor, "SetArmed", "newArmedValue" }	}			
 -- Fill mapping table
 devMap_Insert(2,0, "DevDimmer", { Status = { SIDS.Switch, "Status" }, Level = { SIDS.Dimmer, "LoadLevelStatus" }, Energy = { SIDS.Energy, "Watts"}},
 								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" },
@@ -244,7 +278,7 @@ devMap_Insert(3,0, "DevSwitch", { Status = { SIDS.Switch, "Status" }, Energy = {
 								{ ["setStatus"] = { SIDS.Switch, "SetTarget", "newTarget" }} )
 devMap_Insert(4,0, "DevDoor", sensParams,sensActions)
 devMap_Insert(4,1, "DevDoor", sensParams,sensActions)
-devMap_Insert(4,2, "DevFlood", sensParams,sensActions)
+devMap_Insert(4,2, "DevFlood", sensParams,sensActions)-- Heeft ook een CurrentTemperature value, dus eigenlijk twee sensors in ISS.
 devMap_Insert(4,3, "DevMotion", sensParams,sensActions)
 devMap_Insert(4,4, "DevSmoke", sensParams,sensActions)
 devMap_Insert(4,5, "DevCO2Alert", sensParams,sensActions)
@@ -415,7 +449,6 @@ devMap_Insert(5,2, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature
 													return a_t
 												end
 								} )
-devMap_Insert(7,0, "DevLock", { Status = { SIDS.DoorLock, "Status" }}, { ["setStatus"] = { SIDS.DoorLock, "SetTarget", "newTargetValue" }} )
 devMap_Insert(8,1, "DevShutter", { Level = { SIDS.Dimmer, "LoadLevelStatus" }, stopable = "1", pulsable = "1"}, 
 								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" }, 
 								  ["stopShutter"] = { SIDS.WindowCovering, "Stop", "action" },
@@ -446,7 +479,7 @@ function ISS_GetSystem()
 	res.id = tostring(luup.pk_accesspoint)
 	res.apiversion = 1
 	res.success = true
-	return resprint()
+	return res
 end
 
 -- Get the rooms details
@@ -487,9 +520,9 @@ local function findDefinition(dev)
 		end	
     end
 	-- Next use default based on the device category and sub-category
-	local issType = devMap[dev.category_num..'_'..(dev.subcategory_num or 0)]
+	issType = devMap[dev.category_num..'_'..(dev.subcategory_num or 0)]
 	if not issType then issType = devMap[dev.category_num..'_0'] end
-	if (issType ~= nil) then return issType, dev end
+	if (issType ~= nil) then return true, issType end
     return false, nil
 end
 function ISS_GetDevices()
