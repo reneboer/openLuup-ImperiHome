@@ -3,7 +3,7 @@
 module(..., package.seeall)
 
 --[[
-Version 0.7 21 Januari 2017
+Version 0.8 4 February 2018
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -29,17 +29,17 @@ Cat/Sub cat	Device type string		Description
 			DevRain 				Rain sensor 
 			DevRGBLight 			RGB(W) Light (dimmable) 
 Yes			DevScene 				Scene (launchable) 
-			DevShutter 				Shutter actuator 
+8/0,1		DevShutter 				Shutter actuator 
 4/4			DevSmoke 				Smoke security sensor 
 3			DevSwitch 				Standard on/off switch 
 17			DevTemperature 			Temperature sensor 
-			DevTempHygro 			Temperature and Hygrometry combined sensor 
+			DevTempHygro 			Temperature and Hygrometer combined sensor 
 5/1			DevThermostat 			HVAC
 5/2			DevThermostat 			Heater 
 28			DevUV 					UV sensor 
 			DevWind 				Wind sensor 
 
-These standards can be overruled based on the device schema. Currnetly supported:
+These standards can be overruled based on the device schema. Currently supported:
 - Smart Meter Gas readings
 - Harmony Hub
 
@@ -49,11 +49,12 @@ Scenes are supported.
 local luup = require "openLuup.luup"  -- Gives all Vera luup functionality
 local json = require "openLuup.json"
 
-local includeVeraBridge = false	-- When set to flase the devices and scenes created via a VeraBridge will not be included.
+local includeVeraBridge = false	-- When set to false the devices and scenes created via a VeraBridge will not be included.
 
 -- SIDs for devices we support
 local SIDS = {
     HA = "urn:micasaverde-com:serviceId:HomeAutomationGateway1",
+    HAD = "urn:micasaverde-com:serviceId:HaDevice1",
     Switch = "urn:upnp-org:serviceId:SwitchPower1",
     Dimmer = "urn:upnp-org:serviceId:Dimming1",
 	Color = "urn:micasaverde-com:serviceId:Color1",
@@ -74,6 +75,7 @@ local SIDS = {
 	Harmony = "urn:rboer-com:serviceId:Harmony1",
 	HarmonyDev = "urn:rboer-com:serviceId:HarmonyDevice1",
 	SM_Gas = "urn:rboer-com:serviceId:SmartMeterGAS1",
+	CarNet = "urn:rboer-com:serviceId:CarNet1",
 	MSwitch = "urn:dcineco-com:serviceId:MSwitch1"
 }
 local SCHEMAS = {
@@ -96,12 +98,13 @@ local SCHEMAS = {
 	Harmony = "urn:schemas-rboer-com:device:Harmony(%d*):1",
 	HarmonyDev = "urn:schemas-rboer-com:device:HarmonyDevice(%d*)_(%d*):1",
 	SM_Gas = "urn:schemas-rboer-com:device:SmartMeterGAS:1",
+	CarNet = "urn:schemas-rboer-com:device:CarNet:1",
 	MSwitch = "xxxurn:schemas-dcineco-com:device:MSwitch(%d*):1"
 }
 -- Return the minimum ISS device header
 local function buildDeviceDescription(id,nm,rm,tp)
 	local d = {}
-	d.id = tostring(id)
+	d.id = (id.."" or "Missing")
 	d.name = nm
 	d.room = tostring(rm)
 	d.type = tp
@@ -156,19 +159,23 @@ end
 
 -- Some shared paramters and action definitions.
 local sensParams = { Armed = { SIDS.Sensor, "Armed" }, Tripped = { SIDS.Sensor, "Tripped"},	lasttrip = { SIDS.Sensor, "LastTrip"}, armable = "1" }
-local sensActions = { ["setArmed"] = { SIDS.Sensor, "SetArmed", "newArmedValue" }	}			
+local sensActions = { ["setArmed"] = { SIDS.Sensor, "SetArmed", "newArmedValue" } }			
 
 -- Add standard schema's
-devSchema_Insert(SCHEMAS.DoorLock, false, "DevLock", { Status = { SIDS.DoorLock, "Status" }}, { ["setStatus"] = { SIDS.DoorLock, "SetTarget", "newTargetValue" } )
+devSchema_Insert(SCHEMAS.DoorLock, false, "DevLock", 
+								{ Status = { SIDS.DoorLock, "Status" }
+								}, 
+								{ ["setStatus"] = { SIDS.DoorLock, "SetTarget", "newTargetValue" } 
+								})
 devSchema_Insert(SCHEMAS.DimmableRGBLight, false, "DevRGBLight", 
 								{ Status = { SIDS.Switch, "Status" }, 
 								  Level = { SIDS.Dimmer, "LoadLevelStatus" }, 
 								  Energy = { SIDS.Energy, "Watts"},
 								  color = { SIDS.Color, "CurrentColor" }, 
-								  dimmable = "1",
+								  dimmable = "1"
 								  }, 
 								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" },
-								  ["setStatus"] = { SIDS.Switch, "SetTarget", "newTarget" }
+								  ["setStatus"] = { SIDS.Switch, "SetTarget", "newTarget" },
 								  ["setColor"] = { SIDS.Color, "SetColorRGB", "newColorRGBTarget" }
 								})
 
@@ -176,9 +183,50 @@ devSchema_Insert(SCHEMAS.DimmableRGBLight, false, "DevRGBLight",
 devSchema_Insert(SCHEMAS.SM_Gas, false, "DevGenericSensor", 
 		{ Value = { SIDS.SM_Gas, "Flow" }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png", unit = "l/h"}
 		)
+-- Add Schema level control for the CarNet Plugin
+devSchema_Insert(SCHEMAS.CarNet, true, "DevMultiSwitch", 
+				{ Value = function(id)
+						return "Bat. Lev : "..luup.variable_get(SIDS.HAD, "BatteryLevel", id) .."%"
+					end,
+				Choices = function(id)
+						local choices = "Start Charging,Stop Charging,Start Climate,Stop Climate"
+						return choices
+					end,
+				defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-CarNet/master/icons/CarNet.png" },
+				{ ["setChoice"] = function(id, param)
+					local a_t = {}
+					local actID = ""
+					local param = param or ""
+					if param ~= "" then
+						if param == "Start+Charging" then
+							actID = "startCharge"
+						elseif param == "Stop+Charging" then
+							actID = "stopCharge"
+						elseif param == "Start+Climate" then
+							actID = "startClimate"
+						elseif param == "Stop+Climate" then
+							actID = "stopClimate"
+						end	
+						if actID ~= "" then 
+							a_t[1] = SIDS.CarNet
+							a_t[2] = actID
+						end
+					end	
+					return a_t
+				end }
+			)
 -- Add Schema level control for the Harmony Hub Plugin
 devSchema_Insert(SCHEMAS.Harmony, true, "DevMultiSwitch", 
-				{ Choices = function(id)
+				{ 	Value = function(id)
+						local curActID = luup.variable_get(SIDS.Harmony, "CurrentActivityID", id)
+						for bn = 1,25 do
+							local actID = luup.variable_get(SIDS.Harmony, "ActivityID"..bn, id)
+							local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
+							if actID == curActID then return actDesc end
+						end
+						--return ""
+					end,
+					Choices = function(id)
 						local choices = ""
 						for bn = 1,25 do
 							local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
@@ -188,15 +236,6 @@ devSchema_Insert(SCHEMAS.Harmony, true, "DevMultiSwitch",
 						end
 						if choices ~= "" then choices = choices:sub(1, -2) end	
 						return choices
-					end,
-				  Value = function(id)
-						local curActID = luup.variable_get(SIDS.Harmony, "CurrentActivityID", id)
-						for bn = 1,25 do
-							local actID = luup.variable_get(SIDS.Harmony, "ActivityID"..bn, id)
-							local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
-							if actID == curActID then return actDesc end
-						end
-						return ""
 					end,
 				  defaultIcon = "https://raw.githubusercontent.com/reneboer/vera-Harmony-Hub/master/icons/Harmony.png" },
 				{ ["setChoice"] = function(id, param)
@@ -217,7 +256,7 @@ devSchema_Insert(SCHEMAS.Harmony, true, "DevMultiSwitch",
 					end	
 					return a_t
 				end }
-	)
+			)
 devSchema_Insert(SCHEMAS.HarmonyDev, true, "DevMultiSwitch", 
 				{ Choices = function(id)
 						local choices = ""
@@ -449,6 +488,22 @@ devMap_Insert(5,2, "DevThermostat", { curtemp = { SIDS.Temp, "CurrentTemperature
 													return a_t
 												end
 								} )
+devMap_Insert(8,0, "DevShutter", { Level = { SIDS.Dimmer, "LoadLevelStatus" }, stopable = "1", pulsable = "1"}, 
+								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" }, 
+								  ["stopShutter"] = { SIDS.WindowCovering, "Stop", "action" },
+								  ["pulseShutter"] = function(id, param)
+														local a_t = {}
+														a_t[1] = SIDS.WindowCovering
+														a_t[3] = "action"
+														if param == "up" then
+															a_t[2] = "Up"
+														else
+															a_t[2] = "Down"
+														end
+														a_t[4] = a_t[2]
+														return a_t
+													 end
+								} )  
 devMap_Insert(8,1, "DevShutter", { Level = { SIDS.Dimmer, "LoadLevelStatus" }, stopable = "1", pulsable = "1"}, 
 								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" }, 
 								  ["stopShutter"] = { SIDS.WindowCovering, "Stop", "action" },
@@ -478,7 +533,7 @@ function ISS_GetSystem()
 	local res = {}
 	res.id = tostring(luup.pk_accesspoint)
 	res.apiversion = 1
-	res.success = true
+--	res.success = true
 	return res
 end
 
@@ -501,7 +556,7 @@ function ISS_GetRooms()
 			rid = rid + 1
 		end	
 	end
-	res.success = true
+--	res.success = true
 	return res
 end
 -- Search the schemaMap table for the matching schema. Allows for devices like Harmony Hub and MultiSwitch
@@ -548,12 +603,12 @@ function ISS_GetDevices()
 	for id, scn in pairs(luup.scenes) do
 		-- Ignore the scenes created by VeraBridge
 	    if (tonumber(id) < 10000 or includeVeraBridge) then
-			local d = buildDeviceDescription(id, scn.description, scn.room_num, "DevScene")
+			local d = buildDeviceDescription("Scn"..id, scn.description, scn.room_num, "DevScene")
 			res.devices[did] = d
 			did = did + 1
 		end	
 	end
-	res.success = true
+--	res.success = true
 	return res
 end
 
@@ -619,9 +674,9 @@ end
 function run(wsapi_env)
 	_log = function (...) wsapi_env.error:write(...) end      -- set up the log output, note colon syntax
   
-	local headers = {["Content-Type"] = "text/plain"}
+	local headers = {["content-type"] = "text/plain"}
 	local status, return_content, issRes, pcstat
-	-- Find right function to ISS API
+	-- Find right function to ISS API. Format is query=/.... E.g query=/rooms
 	local _, func_st = string.find(wsapi_env.QUERY_STRING, "query=", 1, true)
 	if func_st then
 		local func = string.sub(wsapi_env.QUERY_STRING, 8)
@@ -633,7 +688,10 @@ function run(wsapi_env)
 			pcstat, issRes = pcall(ISS_GetDevices)
 		else
 			local devid, act_par = func:match("devices/(%d+)/action/(.*)")
-			local action, param = act_par:match("(%w+)/(.*)")
+			local action, param = nil, nil
+			if act_par then
+				action, param = act_par:match("(%w+)/(.*)")
+			end	
 			if action == nil then action = act_par end
 			if devid and action then
 				pcstat, issRes = pcall(ISS_SendCommand, devid, action, param)
@@ -647,9 +705,10 @@ function run(wsapi_env)
 			end      
 		end
 		if pcstat then
-			if issRes.success then 
+			if issRes then 
 				local body = json.encode(issRes)
-				headers["Content-Type"] = "application/json"
+				headers["content-type"] = "application/json"
+				headers["content-length"] = string.len(body)
 				status, return_content = 200, body
 			else
 				status, return_content = 404, "failed: "..(issRes.errormsg or "unknown")
