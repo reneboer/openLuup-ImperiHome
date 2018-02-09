@@ -2,8 +2,10 @@
 
 module(..., package.seeall)
 
+local _log
+
 --[[
-Version 0.8 4 February 2018
+Version 1.0 9 February 2018
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -42,6 +44,7 @@ Yes			DevScene 				Scene (launchable)
 These standards can be overruled based on the device schema. Currently supported:
 - Smart Meter Gas readings
 - Harmony Hub
+- VW CarNet
 
 Scenes are supported.
 
@@ -76,6 +79,7 @@ local SIDS = {
 	HarmonyDev = "urn:rboer-com:serviceId:HarmonyDevice1",
 	SM_Gas = "urn:rboer-com:serviceId:SmartMeterGAS1",
 	CarNet = "urn:rboer-com:serviceId:CarNet1",
+	ALTUI = 'urn:upnp-org:serviceId:altui1',
 	MSwitch = "urn:dcineco-com:serviceId:MSwitch1"
 }
 local SCHEMAS = {
@@ -101,60 +105,126 @@ local SCHEMAS = {
 	CarNet = "urn:schemas-rboer-com:device:CarNet:1",
 	MSwitch = "xxxurn:schemas-dcineco-com:device:MSwitch(%d*):1"
 }
--- Return the minimum ISS device header
-local function buildDeviceDescription(id,nm,rm,tp)
-	local d = {}
-	d.id = (id.."" or "Missing")
-	d.name = nm
-	d.room = tostring(rm)
-	d.type = tp
-	return d
-end
+
 -- Return an ISS parameter object
-local function buildDeviceParameter(k,v)
+local function buildDeviceParameter(k,v,attr)
 	local p = {}
-	p.key = k
-	p.value = v
+	p.key = (k or 'Value')
+	p.value = (v or 'N/A')
+	if attr then 
+		for ak, av in pairs(attr) do
+			if ak and av then p[ak] = av end
+		end
+	end
 	return p
 end
--- Return an ISS paramters object
-local function buildDeviceParamtersObject(id,params)
+-- Return an ISS parameters object
+local function buildDeviceParamtersObject(id, params)
 	local p_t = {}
-	local pid = 1
 	for key, prm_t in pairs(params) do
 		local val
+		local attr
 		if prm_t then
 			if type(prm_t) == "string" then
 				val = prm_t
 			elseif type(prm_t) == "function" then 
-				val = prm_t(id)
+				val, attr = prm_t(id)
 			else	
 				val = luup.variable_get(prm_t[1], prm_t[2], id)
+				if #prm_t == 3 then attr = prm_t[3] end
 			end	
 			if val and val ~= "" then
-				p_t[pid] = buildDeviceParameter(key, val)
-				pid = pid + 1
+				p_t[#p_t+1] = buildDeviceParameter(key, val, attr)
 			end    
 		end    
 	end    
 	return p_t
 end
+-- Return the minimum ISS device header
+local function buildDeviceDescription(id,nm,rm,tp,par)
+	local d = {}
+	d.id = (id.."" or "Missing")
+	d.name = (nm or 'No name')
+	d.room = (tostring(rm) or 'No room')
+	d.type = (tp or 'DevGenericSensor')
+	if par then d.params = buildDeviceParamtersObject(id, par) end
+	return d
+end
+
+
+-- Sub-device build functions. They must return a table of sub devices build of the main device
+local function subdev_CarNet(id,dev)
+	local devices = {}
+	local rm = dev.room_num
+	local desc = dev.description
+	-- Add a Generic sensor for the battery percentage
+	local val = luup.variable_get(SIDS.HAD, "BatteryLevel", id) or 10
+-- Sadly the icons are not dynamic and need a reload for a refresh.				
+--				local ico = "https://raw.githubusercontent.com/reneboer/openLuup-CarNet/master/imperihome/Charge"..math.floor(val/10).."0.png"
+--				local par = { Value = { SIDS.HAD, "BatteryLevel", { unit = "%" }}, defaultIcon = ico }
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-BatPerc", rm, "DevGenericSensor", { Value = { SIDS.HAD, "BatteryLevel", { unit = "%" }}})
+	-- Add a Generic sensor for the range
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Range", rm, "DevGenericSensor", { Value = { SIDS.CarNet, "ElectricRange", { unit = "km" }}})
+	-- Add a Generic sensor for the location
+	if luup.variable_get(SIDS.CarNet, "LocationHome", id) == "1" then 
+		val = "At home" 
+	else
+		local lat = luup.variable_get(SIDS.CarNet, "Latitude", id)
+		local lng = luup.variable_get(SIDS.CarNet, "Longitude", id)
+		lat = tonumber(lat) or 0
+		lng = tonumber(lng) or 0 
+		lat = math.floor(lat * 10000) / 10000
+		lng = math.floor(lng * 10000) / 10000
+		val = lat.." "..lng
+	end	
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Location", rm, "DevGenericSensor", { Value = val })
+	-- Add a Generic sensor for the doors and windows
+	val = "Closed & Locked"
+	local drs = luup.variable_get(SIDS.CarNet, "DoorsStatus", id)
+	local lcks = luup.variable_get(SIDS.CarNet, "LocksStatus", id)
+	local wnds = luup.variable_get(SIDS.CarNet, "WindowsStatus", id)
+	local srf = luup.variable_get(SIDS.CarNet, "SunroofStatus", id)
+	if drs ~= "Closed" then	
+		val = "Doors open"
+	elseif lcks ~= "Locked" then
+		val = "Doors unlocked"
+	elseif srf ~= "Closed" then
+		val = "Sunroof open"
+	elseif wnds ~= "Closed" then
+		val = "Windows open"
+	end
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Doors", rm, "DevGenericSensor", { Value = val })
+	-- Add a Generic sensor for the last update
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Refresh", rm, "DevGenericSensor", { Value = { SIDS.CarNet, "LastVsrRefreshTime" }})
+	-- Add a Generic sensor for remaining charge or climate time
+	val = "N/A"
+	if luup.variable_get(SIDS.CarNet, "ChargeStatus", id) == "1" then
+		val = luup.variable_get(SIDS.CarNet, "RemainingChargeTime", id)
+	elseif luup.variable_get(SIDS.CarNet, "ClimateStatus", id) == "1" then
+		val = luup.variable_get(SIDS.CarNet, "ClimateRemainingTime", id)
+	end	
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-TimeRemaining", rm, "DevGenericSensor", { Value = val })
+	return devices
+end
+
 --[[Some special devices we do at schema level
 	Schema definition four parts:
 		the Vera device Schema (aka json device_type)
+		use_match if the schema is to be found using a pattern rather than exact match.
 		the ISS device type
-		an array of the ISS device paramters for the /devices query
+		an array of the ISS device parameters for the /devices query
 		an array of the ISS device actions.
-	The paramerts and actions arrays can have a fixed string value, a Vera SID and paramter to use for luup.get_value, or a function definition to get the value.
+	The parameters and actions arrays can have a fixed string value, a Vera SID and parameter to use for luup.get_value, or a function definition to get the value.
 ]]
 local schemaMap = {}
 -- Add a definition to the devMap table
-local function devSchema_Insert(idx, mtch, typ, par, act)
+local function devSchema_Insert(idx, mtch, typ, par, act, sub_dev)
 	schemaMap[idx] = {}
 	schemaMap[idx].use_match = mtch
 	schemaMap[idx].type = typ
 	if par then schemaMap[idx].params = par end
 	if act then schemaMap[idx].actions = act end
+	if sub_dev then schemaMap[idx].subdevices = sub_dev end
 end
 
 -- Some shared paramters and action definitions.
@@ -181,39 +251,65 @@ devSchema_Insert(SCHEMAS.DimmableRGBLight, false, "DevRGBLight",
 
 -- Add scheme level control for the SmartMeter plugin Gas flow meter readings
 devSchema_Insert(SCHEMAS.SM_Gas, false, "DevGenericSensor", 
-		{ Value = { SIDS.SM_Gas, "Flow" }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png", unit = "l/h"}
+		{ Value = { SIDS.SM_Gas, "Flow", { unit = "l/h" } }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png"}
 		)
 -- Add Schema level control for the CarNet Plugin
-devSchema_Insert(SCHEMAS.CarNet, true, "DevMultiSwitch", 
+devSchema_Insert(SCHEMAS.CarNet, false, "DevMultiSwitch", 
 				{ Value = function(id)
-						return "Bat. Lev : "..luup.variable_get(SIDS.HAD, "BatteryLevel", id) .."%"
+						local stat = luup.variable_get(SIDS.ALTUI, "DisplayLine2", id)
+						if stat == "" then
+							if luup.variable_get(SIDS.CarNet, "PowerSupplyConnected", id) == "1" then
+								stat = "Ready for Activities"
+							elseif luup.variable_get(SIDS.CarNet, "PowerPlugState", id) == "1" then
+								if luup.variable_get(SIDS.CarNet, "PowerPlugLockState", id) == "1" then
+									stat = "Cabled, but no power"
+								else
+									stat = "Cabled, but not locked!!!!"
+								end
+							end
+							if stat == "" then
+								stat = luup.variable_get(SIDS.CarNet, "CarName", id)
+							end	
+						end
+						return stat
 					end,
 				Choices = function(id)
-						local choices = "Start Charging,Stop Charging,Start Climate,Stop Climate"
+						local choices = "Start Charging,Stop Charging,Start Climate,Stop Climate,Start WindowMelt,Stop WindowMelt,Refresh"
 						return choices
 					end,
-				defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-CarNet/master/icons/CarNet.png" },
+				defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-CarNet/master/icons/CarNet.png" 
+				},
 				{ ["setChoice"] = function(id, param)
-					local a_t = {}
-					local actID = ""
-					local param = param or ""
-					if param ~= "" then
-						if param == "Start+Charging" then
-							actID = "startCharge"
-						elseif param == "Stop+Charging" then
-							actID = "stopCharge"
-						elseif param == "Start+Climate" then
-							actID = "startClimate"
-						elseif param == "Stop+Climate" then
-							actID = "stopClimate"
+						local a_t = {}
+						local actID = ""
+						local param = param or ""
+						if param ~= "" then
+							if param == "Start+Charging" then
+								actID = "startCharge"
+							elseif param == "Stop+Charging" then
+								actID = "stopCharge"
+							elseif param == "Start+Climate" then
+								actID = "startClimate"
+							elseif param == "Stop+Climate" then
+								actID = "stopClimate"
+							elseif param == "Start+WindowMelt" then
+								actID = "startWindowMelt"
+							elseif param == "Stop+WindowMelt" then
+								actID = "stopWindowMelt"
+							elseif param == "Refresh" then
+								actID = "Poll"
+							end	
+							if actID ~= "" then 
+								a_t[1] = SIDS.CarNet
+								a_t[2] = actID
+							end
 						end	
-						if actID ~= "" then 
-							a_t[1] = SIDS.CarNet
-							a_t[2] = actID
-						end
-					end	
-					return a_t
-				end }
+						return a_t
+					end 
+				},
+				function(id, dev)
+					return subdev_CarNet(id, dev)
+				end
 			)
 -- Add Schema level control for the Harmony Hub Plugin
 devSchema_Insert(SCHEMAS.Harmony, true, "DevMultiSwitch", 
@@ -581,9 +677,8 @@ local function findDefinition(dev)
     return false, nil
 end
 function ISS_GetDevices()
-	local did = 1
-	local res = {}
-	res.devices = {}
+
+	local devices = {}
 	for id, dev in pairs(luup.devices) do
 		-- Ignore hidden or invisible devices and those created by VeraBridge unless we want them included.
 		local isDisabled = luup.attr_get("disabled", id)
@@ -592,10 +687,17 @@ function ISS_GetDevices()
 			local fnd, issType = findDefinition(dev)
 			-- If found, build the ISS device definition
 			if fnd then
-				local d = buildDeviceDescription(id, dev.description, dev.room_num, issType.type)
-				if issType.params then d.params = buildDeviceParamtersObject(id, issType.params) end
-				res.devices[did] = d
-				did = did + 1
+				local res, d = pcall(buildDeviceDescription, id, dev.description, dev.room_num, issType.type, issType.params)
+				if res then devices[#devices+1] = d	end	
+				if issType.subdevices then
+					local res, sd = pcall(issType.subdevices, id, dev)
+					if res and sd then
+						for k,d in pairs(sd) do
+							d.id = d.id.."_"..k
+							devices[#devices+1] = d
+						end
+					end
+				end
 			end	
 		end
 	end
@@ -603,12 +705,12 @@ function ISS_GetDevices()
 	for id, scn in pairs(luup.scenes) do
 		-- Ignore the scenes created by VeraBridge
 	    if (tonumber(id) < 10000 or includeVeraBridge) then
-			local d = buildDeviceDescription("Scn"..id, scn.description, scn.room_num, "DevScene")
-			res.devices[did] = d
-			did = did + 1
+			local res, d = pcall(buildDeviceDescription, "Scn"..id, scn.description, scn.room_num, "DevScene")
+			if res then devices[#devices+1] = d	end	
 		end	
 	end
---	res.success = true
+	local res = {}
+	res.devices = devices
 	return res
 end
 
@@ -622,7 +724,7 @@ function ISS_SendCommand(devid, action, param)
 	end	
 	local id = tonumber(devid) or 0
 	if action == "launchScene" then
-		-- Action is for a schene
+		-- Action is for a scene
 		luup.call_action(SIDS.HA,"RunScene",{ SceneNum = tostring(id) },0)
 		res.success = true
 		res.errormsg=""
@@ -664,7 +766,6 @@ end
 
 function ISS_SendGraph(devid, param, startdate, enddate)
 	local res = {}
-	res.success = false
 	res.errormsg="not yet implemented"
 	return res
 end
