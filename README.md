@@ -1,7 +1,9 @@
 # openLuup-ImperiHome
-A simple LUA CGI file to make openLuup talk ImperiHome ISS. Upload imperihome.lua to the /etc./cmh-ludl/cgi folder of your openLuup device.
+A LUA CGI file to make openLuup talk ImperiHome ISS. Upload imperihome.lua to the /etc./cmh-ludl/cgi folder of your openLuup device.
 
-This version pulls the status of most Vera device types. It can arm and disarm security sensors, it should be able to toggle a switch and control a dimmer, thermostats etc. It also supports the Harmony Hub plugin.
+This version pulls the status of most Vera device types. It can arm and disarm security sensors, it should be able to toggle a switch and control a dimmer, thermostats, run scenes etc. It also supports the Harmony Hub plugin, Dutch Smart Meter and VW CarNet.
+
+Adding your own device definition is pretty simple as it is mostly data driven with limited coding required. With V1.0 you can define a funciton for adding sub-devices if you want more information or control than a single Imporihome device would give you. See the subdev_CarNet funciton as example.
 
 First you must upload the imperihome.lua file to your openLuup system in the /etc/cmh-ludl/cgi folder. You can see if it works by entering this URL in your browser:<br><code>http://[openLuup IP]:3480/cgi/imperihome.lua?query=/system</code>
 
@@ -9,7 +11,6 @@ This should return this: <br>
 <code>{</code><br>
 <code>  "apiversion":1,</code><br>
 <code>  "id":"88800000",</code><br>
-<code>  "success":true</code><br>
 <code>}</code>
 
 In ImperiHome choose Settings, My systems, Add a new system.
