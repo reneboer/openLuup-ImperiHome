@@ -5,7 +5,7 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.0 9 February 2018
+Version 1.1 13 February 2018
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -45,6 +45,7 @@ These standards can be overruled based on the device schema. Currently supported
 - Smart Meter Gas readings
 - Harmony Hub
 - VW CarNet
+- My House Control
 
 Scenes are supported.
 
@@ -79,7 +80,8 @@ local SIDS = {
 	HarmonyDev = "urn:rboer-com:serviceId:HarmonyDevice1",
 	SM_Gas = "urn:rboer-com:serviceId:SmartMeterGAS1",
 	CarNet = "urn:rboer-com:serviceId:CarNet1",
-	ALTUI = 'urn:upnp-org:serviceId:altui1',
+	House = "urn:rboer-com:serviceId:HouseDevice1",
+	ALTUI = "urn:upnp-org:serviceId:altui1",
 	MSwitch = "urn:dcineco-com:serviceId:MSwitch1"
 }
 local SCHEMAS = {
@@ -103,6 +105,7 @@ local SCHEMAS = {
 	HarmonyDev = "urn:schemas-rboer-com:device:HarmonyDevice(%d*)_(%d*):1",
 	SM_Gas = "urn:schemas-rboer-com:device:SmartMeterGAS:1",
 	CarNet = "urn:schemas-rboer-com:device:CarNet:1",
+	House = "urn:schemas-rboer-com:device:HouseDevice:1",
 	MSwitch = "xxxurn:schemas-dcineco-com:device:MSwitch(%d*):1"
 }
 
@@ -153,8 +156,13 @@ end
 
 
 -- Sub-device build functions. They must return a table of sub devices build of the main device
-local function subdev_CarNet(id,dev)
+-- Action is optional parameter used to pull any actions when called.
+local function subdev_CarNet(id,dev, action)
 	local devices = {}
+	-- No actions for Car Device, all are sensors
+	if (action) then
+		return nil
+	end
 	local rm = dev.room_num
 	local desc = dev.description
 	-- Add a Generic sensor for the battery percentage
@@ -163,8 +171,11 @@ local function subdev_CarNet(id,dev)
 --				local ico = "https://raw.githubusercontent.com/reneboer/openLuup-CarNet/master/imperihome/Charge"..math.floor(val/10).."0.png"
 --				local par = { Value = { SIDS.HAD, "BatteryLevel", { unit = "%" }}, defaultIcon = ico }
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-BatPerc", rm, "DevGenericSensor", { Value = { SIDS.HAD, "BatteryLevel", { unit = "%" }}})
+	devices[#devices].id = id.."_1"
+
 	-- Add a Generic sensor for the range
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-Range", rm, "DevGenericSensor", { Value = { SIDS.CarNet, "ElectricRange", { unit = "km" }}})
+	devices[#devices].id = id.."_2"
 	-- Add a Generic sensor for the location
 	if luup.variable_get(SIDS.CarNet, "LocationHome", id) == "1" then 
 		val = "At home" 
@@ -178,6 +189,7 @@ local function subdev_CarNet(id,dev)
 		val = lat.." "..lng
 	end	
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-Location", rm, "DevGenericSensor", { Value = val })
+	devices[#devices].id = id.."_3"
 	-- Add a Generic sensor for the doors and windows
 	val = "Closed & Locked"
 	local drs = luup.variable_get(SIDS.CarNet, "DoorsStatus", id)
@@ -194,8 +206,10 @@ local function subdev_CarNet(id,dev)
 		val = "Windows open"
 	end
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-Doors", rm, "DevGenericSensor", { Value = val })
+	devices[#devices].id = id.."_4"
 	-- Add a Generic sensor for the last update
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-Refresh", rm, "DevGenericSensor", { Value = { SIDS.CarNet, "LastVsrRefreshTime" }})
+	devices[#devices].id = id.."_5"
 	-- Add a Generic sensor for remaining charge or climate time
 	val = "N/A"
 	if luup.variable_get(SIDS.CarNet, "ChargeStatus", id) == "1" then
@@ -204,7 +218,44 @@ local function subdev_CarNet(id,dev)
 		val = luup.variable_get(SIDS.CarNet, "ClimateRemainingTime", id)
 	end	
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-TimeRemaining", rm, "DevGenericSensor", { Value = val })
+	devices[#devices].id = id.."_6"
 	return devices
+end
+
+local function subdev_HouseDevice(id, dev, action)
+	-- Make sure actions and devices will have the same child ID
+	if action then
+		local a_t = {}
+		local pid,cid = id:match("(%d-)_(%d+)")
+		if pid and cid and action == "setStatus" then
+			local action = ""
+			if cid == "1" then 
+				action = "SetTempOverrideControl"
+			elseif cid == "2" then 
+				action = "SetCarChargeControl"
+			elseif cid == "3" then 
+				action = "SetZonneschermControl"
+			else
+				return nil
+			end	
+			a_t[1] = SIDS.House
+			a_t[2] = action
+			a_t[3] = "newTargetValue"
+		end
+		return a_t				
+	else
+		local devices = {}
+		local rm = dev.room_num
+		local desc = dev.description
+	
+		devices[#devices+1] = buildDeviceDescription(id, desc.."-OTG", rm, "DevSwitch", { Status = { SIDS.House, "TempOverrideControl" }})
+		devices[#devices].id = id.."_1"
+		devices[#devices+1] = buildDeviceDescription(id, desc.."-Car", rm, "DevSwitch", { Status = { SIDS.House, "CarChargeControl" }})
+		devices[#devices].id = id.."_2"
+		devices[#devices+1] = buildDeviceDescription(id, desc.."-Sunscreen", rm, "DevSwitch", { Status = { SIDS.House, "ZonneschermControl" }})
+		devices[#devices].id = id.."_3"
+		return devices
+	end	
 end
 
 --[[Some special devices we do at schema level
@@ -253,6 +304,52 @@ devSchema_Insert(SCHEMAS.DimmableRGBLight, false, "DevRGBLight",
 devSchema_Insert(SCHEMAS.SM_Gas, false, "DevGenericSensor", 
 		{ Value = { SIDS.SM_Gas, "Flow", { unit = "l/h" } }, defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/gas.png"}
 		)
+-- Add Schema level control for my House Control Plugin
+devSchema_Insert(SCHEMAS.House, false, "DevMultiSwitch", 
+				{ Value = function(id)
+						local house_mode = tonumber((luup.attr_get("Mode",0)),10)
+						if house_mode == 1 then
+							return "Home"
+						elseif house_mode == 2 then	
+							return "Away"
+						elseif house_mode == 3 then	
+							return "Night"
+						elseif house_mode == 4 then	
+							return "Vacation"
+						end
+						return stat
+					end,
+					Choices = function(id)
+						local choices = "Home,Away,Night,Vacation"
+						return choices
+					end,
+					defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/House1.png" 
+				},
+				{ ["setChoice"] = function(id, param)
+						local a_t = {}
+						local param = param or ""
+						if param == "Home" then
+							param = "1"
+						elseif param == "Away" then
+							param = "2"
+						elseif param == "Night" then
+							param = "3"
+						elseif param == "Vacation" then
+							param = "4"
+						end
+						if param ~= "" then
+							a_t[1] = SIDS.HA
+							a_t[2] = "SetHouseMode"
+							a_t[3] = "Mode"
+							a_t[4] = param
+						end
+						return a_t
+					end
+				},
+				function(id, dev, action)
+					return subdev_HouseDevice(id, dev, action)
+				end
+			)
 -- Add Schema level control for the CarNet Plugin
 devSchema_Insert(SCHEMAS.CarNet, false, "DevMultiSwitch", 
 				{ Value = function(id)
@@ -307,8 +404,8 @@ devSchema_Insert(SCHEMAS.CarNet, false, "DevMultiSwitch",
 						return a_t
 					end 
 				},
-				function(id, dev)
-					return subdev_CarNet(id, dev)
+				function(id, dev, action)
+					return subdev_CarNet(id, dev, action)
 				end
 			)
 -- Add Schema level control for the Harmony Hub Plugin
@@ -676,8 +773,8 @@ local function findDefinition(dev)
 	if (issType ~= nil) then return true, issType end
     return false, nil
 end
-function ISS_GetDevices()
 
+function ISS_GetDevices()
 	local devices = {}
 	for id, dev in pairs(luup.devices) do
 		-- Ignore hidden or invisible devices and those created by VeraBridge unless we want them included.
@@ -693,7 +790,6 @@ function ISS_GetDevices()
 					local res, sd = pcall(issType.subdevices, id, dev)
 					if res and sd then
 						for k,d in pairs(sd) do
-							d.id = d.id.."_"..k
 							devices[#devices+1] = d
 						end
 					end
@@ -701,7 +797,7 @@ function ISS_GetDevices()
 			end	
 		end
 	end
-	-- Add scenes
+	-- Add scenes with a prefix to avoid clash with device numbers
 	for id, scn in pairs(luup.scenes) do
 		-- Ignore the scenes created by VeraBridge
 	    if (tonumber(id) < 10000 or includeVeraBridge) then
@@ -722,20 +818,34 @@ function ISS_SendCommand(devid, action, param)
 		res.errormsg="missing device and/or action"
 		return res
 	end	
-	local id = tonumber(devid) or 0
 	if action == "launchScene" then
 		-- Action is for a scene
+		local id = tonumber(devid:sub(4)) or 0
 		luup.call_action(SIDS.HA,"RunScene",{ SceneNum = tostring(id) },0)
 		res.success = true
 		res.errormsg=""
 	else
+		-- Check on _ for sub device. Action will be on main device ID	
+		local id, cid = devid:match("(%d-)_(%d+)")
+		if id then 
+			id = tonumber(id) or 0 
+		else	
+			id = tonumber(devid) or 0 
+		end
 		local dev = luup.devices[id]
 		if dev then
 			-- See if we know how to handle.
 			local fnd, issType = findDefinition(dev)
 			-- If found, build the ISS device definition
 			if fnd then
-				local act_t = issType.actions[action]
+				local act_t = nil
+				-- See if we need to call for subdevice handler
+				if cid and issType.subdevices then
+					local res, sd = pcall(issType.subdevices, devid, dev, action)
+					if res then act_t = sd end
+				else
+					act_t = issType.actions[action]
+				end
 				if act_t then
 					if type(act_t) == "function" then
 						act_t = act_t(id, param)
@@ -788,7 +898,7 @@ function run(wsapi_env)
 		elseif func == "devices" then
 			pcstat, issRes = pcall(ISS_GetDevices)
 		else
-			local devid, act_par = func:match("devices/(%d+)/action/(.*)")
+			local devid, act_par = func:match("devices/([%d_]+)/action/(.*)")
 			local action, param = nil, nil
 			if act_par then
 				action, param = act_par:match("(%w+)/(.*)")
