@@ -5,7 +5,7 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.1 13 February 2018
+Version 1.2 16 November 2018
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -235,6 +235,8 @@ local function subdev_HouseDevice(id, dev, action)
 				action = "SetCarChargeControl"
 			elseif cid == "3" then 
 				action = "SetZonneschermControl"
+			elseif cid == "4" then 
+				action = "SetOfficeThermostatsControl"
 			else
 				return nil
 			end	
@@ -254,6 +256,8 @@ local function subdev_HouseDevice(id, dev, action)
 		devices[#devices].id = id.."_2"
 		devices[#devices+1] = buildDeviceDescription(id, desc.."-Sunscreen", rm, "DevSwitch", { Status = { SIDS.House, "ZonneschermControl" }})
 		devices[#devices].id = id.."_3"
+		devices[#devices+1] = buildDeviceDescription(id, desc.."-OfficeWarm", rm, "DevSwitch", { Status = { SIDS.House, "OfficeThermostatsControl" }})
+		devices[#devices].id = id.."_4"
 		return devices
 	end	
 end
@@ -898,7 +902,7 @@ function run(wsapi_env)
 		elseif func == "devices" then
 			pcstat, issRes = pcall(ISS_GetDevices)
 		else
-			local devid, act_par = func:match("devices/([%d_]+)/action/(.*)")
+			local devid, act_par = func:match("devices/([^/]*)/action/(.*)")
 			local action, param = nil, nil
 			if act_par then
 				action, param = act_par:match("(%w+)/(.*)")
