@@ -5,41 +5,41 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.2 16 November 2018
+Version 1.3 5 September 2019
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
 
 Cat/Sub cat	Device type string		Description
-			DevCamera 				MJPEG IP Camera 
-			DevCO2 					CO2 sensor 
-4/5			DevCO2Alert 			CO2 Alert sensor 
-2			DevDimmer 				Dimmable light 
-4/0,1		DevDoor 				Door / window security sensor 
-21			DevElectricity 			Electricity consumption sensor 
-4/2			DevFlood 				Flood security sensor 
-12			DevGenericSensor 		Generic sensor (any value) 
-16			DevHygrometry 			Hygro sensor 
-			DevLock 				Door lock 
-18			DevLuminosity 			Luminance sensor 
-4/3			DevMotion 				Motion security sensor 
-			DevMultiSwitch 			Multiple choice actuator 
-			DevNoise 				Noise sensor 
-			DevPlayer 				Audio/Video player 
-			DevPlaylist 			Audio/Video playlist 
-			DevPressure 			Pressure sensor 
-			DevRain 				Rain sensor 
-			DevRGBLight 			RGB(W) Light (dimmable) 
-Yes			DevScene 				Scene (launchable) 
-8/0,1		DevShutter 				Shutter actuator 
-4/4			DevSmoke 				Smoke security sensor 
-3			DevSwitch 				Standard on/off switch 
-17			DevTemperature 			Temperature sensor 
-			DevTempHygro 			Temperature and Hygrometer combined sensor 
-5/1			DevThermostat 			HVAC
-5/2			DevThermostat 			Heater 
-28			DevUV 					UV sensor 
-			DevWind 				Wind sensor 
+		DevCamera 			MJPEG IP Camera 
+		DevCO2 				CO2 sensor 
+4/5		DevCO2Alert 			CO2 Alert sensor 
+2		DevDimmer 			Dimmable light 
+4/0,1		DevDoor 			Door / window security sensor 
+21		DevElectricity 			Electricity consumption sensor 
+4/2		DevFlood 			Flood security sensor 
+12		DevGenericSensor 		Generic sensor (any value) 
+16		DevHygrometry 			Hygro sensor 
+		DevLock 			Door lock 
+18		DevLuminosity 			Luminance sensor 
+4/3		DevMotion 			Motion security sensor 
+		DevMultiSwitch 			Multiple choice actuator 
+		DevNoise 			Noise sensor 
+		DevPlayer 			Audio/Video player 
+		DevPlaylist 			Audio/Video playlist 
+		DevPressure 			Pressure sensor 
+		DevRain 			Rain sensor 
+		DevRGBLight 			RGB(W) Light (dimmable) 
+Yes		DevScene 			Scene (launchable) 
+8/0,1		DevShutter 			Shutter actuator 
+4/4		DevSmoke 			Smoke security sensor 
+3		DevSwitch 			Standard on/off switch 
+17		DevTemperature 			Temperature sensor 
+		DevTempHygro 			Temperature and Hygrometer combined sensor 
+5/1		DevThermostat 			HVAC
+5/2		DevThermostat 			Heater 
+28		DevUV				UV sensor 
+		DevWind				Wind sensor 
 
 These standards can be overruled based on the device schema. Currently supported:
 - Smart Meter Gas readings
@@ -208,7 +208,7 @@ local function subdev_CarNet(id,dev, action)
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-Doors", rm, "DevGenericSensor", { Value = val })
 	devices[#devices].id = id.."_4"
 	-- Add a Generic sensor for the last update
-	devices[#devices+1] = buildDeviceDescription(id, desc.."-Refresh", rm, "DevGenericSensor", { Value = { SIDS.CarNet, "LastVsrRefreshTime" }})
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Refresh", rm, "DevGenericSensor", { Value = { SIDS.CarNet, "LastCarMessageTimestamp" }})
 	devices[#devices].id = id.."_5"
 	-- Add a Generic sensor for remaining charge or climate time
 	val = "N/A"
