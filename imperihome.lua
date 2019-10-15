@@ -5,7 +5,7 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.3 5 September 2019
+Version 1.4 15 October 2019
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -13,31 +13,31 @@ Standard Vera Device types in ISS we can handle right now
 Cat/Sub cat	Device type string		Description
 		DevCamera 			MJPEG IP Camera 
 		DevCO2 				CO2 sensor 
-4/5		DevCO2Alert 			CO2 Alert sensor 
+4/5		DevCO2Alert 		CO2 Alert sensor 
 2		DevDimmer 			Dimmable light 
-4/0,1		DevDoor 			Door / window security sensor 
-21		DevElectricity 			Electricity consumption sensor 
+4/0,1	DevDoor				Door / window security sensor 
+21		DevElectricity		Electricity consumption sensor 
 4/2		DevFlood 			Flood security sensor 
-12		DevGenericSensor 		Generic sensor (any value) 
-16		DevHygrometry 			Hygro sensor 
+12		DevGenericSensor	Generic sensor (any value) 
+16		DevHygrometry		Hygro sensor 
 		DevLock 			Door lock 
-18		DevLuminosity 			Luminance sensor 
+18		DevLuminosity		Luminance sensor 
 4/3		DevMotion 			Motion security sensor 
-		DevMultiSwitch 			Multiple choice actuator 
+		DevMultiSwitch		Multiple choice actuator 
 		DevNoise 			Noise sensor 
 		DevPlayer 			Audio/Video player 
-		DevPlaylist 			Audio/Video playlist 
-		DevPressure 			Pressure sensor 
+		DevPlaylist			Audio/Video playlist 
+		DevPressure			Pressure sensor 
 		DevRain 			Rain sensor 
-		DevRGBLight 			RGB(W) Light (dimmable) 
+		DevRGBLight			RGB(W) Light (dimmable) 
 Yes		DevScene 			Scene (launchable) 
-8/0,1		DevShutter 			Shutter actuator 
+8/0,1	DevShutter 			Shutter actuator 
 4/4		DevSmoke 			Smoke security sensor 
 3		DevSwitch 			Standard on/off switch 
-17		DevTemperature 			Temperature sensor 
-		DevTempHygro 			Temperature and Hygrometer combined sensor 
-5/1		DevThermostat 			HVAC
-5/2		DevThermostat 			Heater 
+17		DevTemperature		Temperature sensor 
+		DevTempHygro		Temperature and Hygrometer combined sensor 
+5/1		DevThermostat		HVAC
+5/2		DevThermostat		Heater 
 28		DevUV				UV sensor 
 		DevWind				Wind sensor 
 
@@ -154,6 +154,21 @@ local function buildDeviceDescription(id,nm,rm,tp,par)
 	return d
 end
 
+-- Convert RGB color string to 8 byte hex
+local function ColorToHex(color)
+	local hex = "00000000"
+	for part in string.gmatch(color, "([^,]+)") do
+		pos = part:sub(1,1)
+		if pos == "2" then
+			hex = hex:sub(1,2) .. string.format("%02X",part:sub(3)) .. hex:sub(5)
+		elseif pos == "3" then
+			hex = hex:sub(1,4) .. string.format("%02X",part:sub(3)) .. hex:sub(7)
+		elseif pos == "4" then
+			hex = hex:sub(1,6) .. string.format("%02X",part:sub(3))
+		end    
+	end
+	return hex
+end
 
 -- Sub-device build functions. They must return a table of sub devices build of the main device
 -- Action is optional parameter used to pull any actions when called.
@@ -208,7 +223,8 @@ local function subdev_CarNet(id,dev, action)
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-Doors", rm, "DevGenericSensor", { Value = val })
 	devices[#devices].id = id.."_4"
 	-- Add a Generic sensor for the last update
-	devices[#devices+1] = buildDeviceDescription(id, desc.."-Refresh", rm, "DevGenericSensor", { Value = { SIDS.CarNet, "LastCarMessageTimestamp" }})
+	local ts = luup.variable_get(SIDS.CarNet, "LastCarMessageTimestamp", id)
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Refresh", rm, "DevGenericSensor", { Value = os.date("%H:%M %d/%m/%y" ,ts) })
 	devices[#devices].id = id.."_5"
 	-- Add a Generic sensor for remaining charge or climate time
 	val = "N/A"
@@ -296,12 +312,28 @@ devSchema_Insert(SCHEMAS.DimmableRGBLight, false, "DevRGBLight",
 								{ Status = { SIDS.Switch, "Status" }, 
 								  Level = { SIDS.Dimmer, "LoadLevelStatus" }, 
 								  Energy = { SIDS.Energy, "Watts"},
-								  color = { SIDS.Color, "CurrentColor" }, 
+--								  color = { SIDS.Color, "CurrentColor" }, 
+								  color = function(id)
+										local col = luup.variable_get(SIDS.Color, "CurrentColor", id)
+										return ColorToHex(col)
+									end, 
 								  dimmable = "1"
 								  }, 
 								{ ["setLevel"] = { SIDS.Dimmer, "SetLoadLevelTarget", "newLoadlevelTarget" },
 								  ["setStatus"] = { SIDS.Switch, "SetTarget", "newTarget" },
-								  ["setColor"] = { SIDS.Color, "SetColorRGB", "newColorRGBTarget" }
+								  ["setColor"] = function(id,param)
+										local a_t = {}
+										local param = param or ""
+										-- color comes in a HEX AARRGGBB, convert to Vera standard RRR,GGG,BBB
+										if string.len(param) == 8 then
+											local newtg = string.format("%d,%d,%d",tonumber(param:sub(3,4),16),tonumber(param:sub(5,6),16),tonumber(param:sub(7),16))
+											a_t[1] = SIDS.Color
+											a_t[2] = "SetColorRGB"
+											a_t[3] = "newColorRGBTarget"
+											a_t[4] = newtg
+										end
+										return a_t
+									end
 								})
 
 -- Add scheme level control for the SmartMeter plugin Gas flow meter readings
@@ -321,11 +353,10 @@ devSchema_Insert(SCHEMAS.House, false, "DevMultiSwitch",
 						elseif house_mode == 4 then	
 							return "Vacation"
 						end
-						return stat
+						return house_mode
 					end,
 					Choices = function(id)
-						local choices = "Home,Away,Night,Vacation"
-						return choices
+						return "Home,Away,Night,Vacation"
 					end,
 					defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-ImperiHome/master/House1.png" 
 				},
@@ -375,8 +406,7 @@ devSchema_Insert(SCHEMAS.CarNet, false, "DevMultiSwitch",
 						return stat
 					end,
 				Choices = function(id)
-						local choices = "Start Charging,Stop Charging,Start Climate,Stop Climate,Start WindowMelt,Stop WindowMelt,Refresh"
-						return choices
+						return "Start Charging,Stop Charging,Start Climate,Stop Climate,Start WindowMelt,Stop WindowMelt,Refresh"
 					end,
 				defaultIcon = "https://raw.githubusercontent.com/reneboer/openLuup-CarNet/master/icons/CarNet.png" 
 				},
@@ -418,10 +448,12 @@ devSchema_Insert(SCHEMAS.Harmony, true, "DevMultiSwitch",
 						local curActID = luup.variable_get(SIDS.Harmony, "CurrentActivityID", id)
 						for bn = 1,25 do
 							local actID = luup.variable_get(SIDS.Harmony, "ActivityID"..bn, id)
-							local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
-							if actID == curActID then return actDesc end
+							if actID ~= "" and actID == curActID then 
+								local actDesc = luup.variable_get(SIDS.Harmony, "ActivityDesc"..bn, id)
+								return actDesc 
+							end	
 						end
-						--return ""
+						return ""
 					end,
 					Choices = function(id)
 						local choices = ""
