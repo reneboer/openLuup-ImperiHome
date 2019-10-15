@@ -182,9 +182,6 @@ local function subdev_CarNet(id,dev, action)
 	local desc = dev.description
 	-- Add a Generic sensor for the battery percentage
 	local val = luup.variable_get(SIDS.HAD, "BatteryLevel", id) or 10
--- Sadly the icons are not dynamic and need a reload for a refresh.				
---				local ico = "https://raw.githubusercontent.com/reneboer/openLuup-CarNet/master/imperihome/Charge"..math.floor(val/10).."0.png"
---				local par = { Value = { SIDS.HAD, "BatteryLevel", { unit = "%" }}, defaultIcon = ico }
 	devices[#devices+1] = buildDeviceDescription(id, desc.."-BatPerc", rm, "DevGenericSensor", { Value = { SIDS.HAD, "BatteryLevel", { unit = "%" }}})
 	devices[#devices].id = id.."_1"
 
