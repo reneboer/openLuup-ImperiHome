@@ -5,7 +5,7 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.4 15 October 2019
+Version 1.6 28 January 2020
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -45,6 +45,7 @@ These standards can be overruled based on the device schema. Currently supported
 - Smart Meter Gas readings
 - Harmony Hub
 - VW CarNet
+- TeslaCar
 - My House Control
 
 Scenes are supported.
@@ -80,6 +81,7 @@ local SIDS = {
 	HarmonyDev = "urn:rboer-com:serviceId:HarmonyDevice1",
 	SM_Gas = "urn:rboer-com:serviceId:SmartMeterGAS1",
 	CarNet = "urn:rboer-com:serviceId:CarNet1",
+	TeslaCar = "urn:rboer-com:serviceId:TeslaCar1",
 	House = "urn:rboer-com:serviceId:HouseDevice1",
 	ALTUI = "urn:upnp-org:serviceId:altui1",
 	MSwitch = "urn:dcineco-com:serviceId:MSwitch1"
@@ -105,6 +107,7 @@ local SCHEMAS = {
 	HarmonyDev = "urn:schemas-rboer-com:device:HarmonyDevice(%d*)_(%d*):1",
 	SM_Gas = "urn:schemas-rboer-com:device:SmartMeterGAS:1",
 	CarNet = "urn:schemas-rboer-com:device:CarNet:1",
+	TeslaCar = "urn:schemas-rboer-com:device:TeslaCar:1",
 	House = "urn:schemas-rboer-com:device:HouseDevice:1",
 	MSwitch = "xxxurn:schemas-dcineco-com:device:MSwitch(%d*):1"
 }
@@ -235,6 +238,69 @@ local function subdev_CarNet(id,dev, action)
 	return devices
 end
 
+local function subdev_TeslaCar(id,dev, action)
+	local devices = {}
+	-- No actions for Car Device, all are sensors
+	if (action) then
+		return nil
+	end
+	local rm = dev.room_num
+	local desc = dev.description
+	-- Add a Generic sensor for the battery percentage
+	local val = luup.variable_get(SIDS.HAD, "BatteryLevel", id) or 10
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-BatPerc", rm, "DevGenericSensor", { Value = { SIDS.HAD, "BatteryLevel", { unit = "%" }}})
+	devices[#devices].id = id.."_1"
+
+	-- Add a Generic sensor for the range
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Range", rm, "DevGenericSensor", { Value = { SIDS.TeslaCar, "BatteryRange", { unit = "km" }}})
+	devices[#devices].id = id.."_2"
+	-- Add a Generic sensor for the location
+	if luup.variable_get(SIDS.TeslaCar, "LocationHome", id) == "1" then 
+		val = "At home" 
+	else
+		local lat = luup.variable_get(SIDS.TeslaCar, "Latitude", id)
+		local lng = luup.variable_get(SIDS.TeslaCar, "Longitude", id)
+		lat = tonumber(lat) or 0
+		lng = tonumber(lng) or 0 
+		lat = math.floor(lat * 10000) / 10000
+		lng = math.floor(lng * 10000) / 10000
+		val = lat.." "..lng
+	end	
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Location", rm, "DevGenericSensor", { Value = val })
+	devices[#devices].id = id.."_3"
+	-- Add a Generic sensor for the doors and windows
+	val = "Closed & Locked"
+	local drs = luup.variable_get(SIDS.TeslaCar, "DoorsMessage", id)
+	local lcks = luup.variable_get(SIDS.TeslaCar, "LockedStatus", id)
+	local wnds = luup.variable_get(SIDS.TeslaCar, "WindowsMessage", id)
+	local srf = luup.variable_get(SIDS.TeslaCar, "SunroofStatus", id)
+	if drs ~= "Closed" then	
+		val = "Doors open"
+	elseif lcks ~= "1" then
+		val = "Doors unlocked"
+	elseif srf ~= "0" then
+		val = "Sunroof open"
+	elseif wnds ~= "Closed" then
+		val = "Windows open"
+	end
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Doors", rm, "DevGenericSensor", { Value = val })
+	devices[#devices].id = id.."_4"
+	-- Add a Generic sensor for the last update
+	local ts = luup.variable_get(SIDS.TeslaCar, "LastCarMessageTimestamp", id)
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-Refresh", rm, "DevGenericSensor", { Value = os.date("%H:%M %d/%m/%y" ,ts) })
+	devices[#devices].id = id.."_5"
+	-- Add a Generic sensor for remaining charge or climate time
+	val = "N/A"
+	if luup.variable_get(SIDS.TeslaCar, "ChargeStatus", id) == "1" then
+		val = luup.variable_get(SIDS.TeslaCar, "RemainingChargeTime", id)
+	elseif luup.variable_get(SIDS.TeslaCar, "ClimateStatus", id) == "1" then
+		val = luup.variable_get(SIDS.TeslaCar, "ClimateMessage", id)
+	end	
+	devices[#devices+1] = buildDeviceDescription(id, desc.."-TimeRemaining", rm, "DevGenericSensor", { Value = val })
+	devices[#devices].id = id.."_6"
+	return devices
+end
+
 local function subdev_HouseDevice(id, dev, action)
 	-- Make sure actions and devices will have the same child ID
 	if action then
@@ -309,7 +375,6 @@ devSchema_Insert(SCHEMAS.DimmableRGBLight, false, "DevRGBLight",
 								{ Status = { SIDS.Switch, "Status" }, 
 								  Level = { SIDS.Dimmer, "LoadLevelStatus" }, 
 								  Energy = { SIDS.Energy, "Watts"},
---								  color = { SIDS.Color, "CurrentColor" }, 
 								  color = function(id)
 										local col = luup.variable_get(SIDS.Color, "CurrentColor", id)
 										return ColorToHex(col)
@@ -437,6 +502,69 @@ devSchema_Insert(SCHEMAS.CarNet, false, "DevMultiSwitch",
 				},
 				function(id, dev, action)
 					return subdev_CarNet(id, dev, action)
+				end
+			)
+-- Add Schema level control for the TeslaCar Plugin
+devSchema_Insert(SCHEMAS.TeslaCar, false, "DevMultiSwitch", 
+				{ Value = function(id)
+						local stat = luup.variable_get(SIDS.ALTUI, "DisplayLine2", id)
+						if stat == "" then
+							if luup.variable_get(SIDS.TeslaCar, "PowerSupplyConnected", id) == "1" then
+								if luup.variable_get(SIDS.TeslaCar, "PowerPlugState", id) == "1" then
+									stat = "Ready for charing"
+								else
+									stat = "Cable but no power"
+								end
+							else
+								-- stat = "Not connected"
+							end
+							if stat == "" then
+								stat = luup.variable_get(SIDS.TeslaCar, "CarName", id)
+							end	
+						end
+						return stat
+					end,
+				Choices = function(id)
+						return "Open Charge Port,Start Charging,Stop Charging,Start Climate,Stop Climate,Refresh,Honk Horn,Flash Lights,Unlock Trunk,Unlock Frunk"
+					end,
+				defaultIcon = "https://raw.githubusercontent.com/reneboer/vera-TeslaCar/master/icons/TeslaCar.png" 
+				},
+				{ ["setChoice"] = function(id, param)
+						local a_t = {}
+						local actID = ""
+						local param = param or ""
+						if param ~= "" then
+							if param == "Start+Charging" then
+								actID = "startCharge"
+							elseif param == "Stop+Charging" then
+								actID = "stopCharge"
+							elseif param == "Start+Climate" then
+								actID = "startClimate"
+							elseif param == "Stop+Climate" then
+								actID = "stopClimate"
+							elseif param == "Open+Charge+Port" then
+								actID = "openChargePort"
+							elseif param == "Honk+Horn" then
+								actID = "honkHorn"
+							elseif param == "Flash+Lights" then
+								actID = "flashLights"
+							elseif param == "Unlock+Frunk" then
+								actID = "unlockFrunk"
+							elseif param == "Unlock+Trunk" then
+								actID = "unlockTrunk"
+							elseif param == "Refresh" then
+								actID = "Poll"
+							end	
+							if actID ~= "" then 
+								a_t[1] = SIDS.TeslaCar
+								a_t[2] = actID
+							end
+						end	
+						return a_t
+					end 
+				},
+				function(id, dev, action)
+					return subdev_TeslaCar(id, dev, action)
 				end
 			)
 -- Add Schema level control for the Harmony Hub Plugin
@@ -888,7 +1016,12 @@ function ISS_SendCommand(devid, action, param)
 					if (act_t[1]) then
 						local prm = {}
 						if act_t[3] and (act_t[4] ~= "") then prm[act_t[3]] = act_t[4] end
-						luup.call_action(act_t[1],act_t[2],prm,id)
+						if act_t[1] == SIDS.HA then
+							-- Its an action for the HomeAutomationGateway device (0)
+							luup.call_action(act_t[1],act_t[2],prm,0)
+						else
+							luup.call_action(act_t[1],act_t[2],prm,id)
+						end	
 						res.success = true
 						res.errormsg=""
 					else
