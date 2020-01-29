@@ -5,7 +5,7 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.6 28 January 2020
+Version 1.6 29 January 2020
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -477,17 +477,17 @@ devSchema_Insert(SCHEMAS.CarNet, false, "DevMultiSwitch",
 						local actID = ""
 						local param = param or ""
 						if param ~= "" then
-							if param == "Start+Charging" then
+							if param == "Start Charging" then
 								actID = "startCharge"
-							elseif param == "Stop+Charging" then
+							elseif param == "Stop Charging" then
 								actID = "stopCharge"
-							elseif param == "Start+Climate" then
+							elseif param == "Start Climate" then
 								actID = "startClimate"
-							elseif param == "Stop+Climate" then
+							elseif param == "Stop Climate" then
 								actID = "stopClimate"
-							elseif param == "Start+WindowMelt" then
+							elseif param == "Start WindowMelt" then
 								actID = "startWindowMelt"
-							elseif param == "Stop+WindowMelt" then
+							elseif param == "Stop WindowMelt" then
 								actID = "stopWindowMelt"
 							elseif param == "Refresh" then
 								actID = "Poll"
@@ -534,23 +534,23 @@ devSchema_Insert(SCHEMAS.TeslaCar, false, "DevMultiSwitch",
 						local actID = ""
 						local param = param or ""
 						if param ~= "" then
-							if param == "Start+Charging" then
+							if param == "Start Charging" then
 								actID = "startCharge"
-							elseif param == "Stop+Charging" then
+							elseif param == "Stop Charging" then
 								actID = "stopCharge"
-							elseif param == "Start+Climate" then
+							elseif param == "Start Climate" then
 								actID = "startClimate"
-							elseif param == "Stop+Climate" then
+							elseif param == "Stop Climate" then
 								actID = "stopClimate"
-							elseif param == "Open+Charge+Port" then
+							elseif param == "Open Charge Port" then
 								actID = "openChargePort"
-							elseif param == "Honk+Horn" then
+							elseif param == "Honk Horn" then
 								actID = "honkHorn"
-							elseif param == "Flash+Lights" then
+							elseif param == "Flash Lights" then
 								actID = "flashLights"
-							elseif param == "Unlock+Frunk" then
+							elseif param == "Unlock Frunk" then
 								actID = "unlockFrunk"
-							elseif param == "Unlock+Trunk" then
+							elseif param == "Unlock Trunk" then
 								actID = "unlockTrunk"
 							elseif param == "Refresh" then
 								actID = "Poll"
@@ -1068,8 +1068,9 @@ function run(wsapi_env)
 			local action, param = nil, nil
 			if act_par then
 				action, param = act_par:match("(%w+)/(.*)")
-			end	
+			end
 			if action == nil then action = act_par end
+			if param then param = param:gsub("%%20"," ") end  -- Paramters can have spaces that come as %20 on request.
 			if devid and action then
 				pcstat, issRes = pcall(ISS_SendCommand, devid, action, param)
 			else
