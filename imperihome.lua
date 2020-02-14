@@ -5,7 +5,7 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.6 29 January 2020
+Version 1.7 14 February 2020
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -525,7 +525,7 @@ devSchema_Insert(SCHEMAS.TeslaCar, false, "DevMultiSwitch",
 						return stat
 					end,
 				Choices = function(id)
-						return "Open Charge Port,Start Charging,Stop Charging,Start Climate,Stop Climate,Refresh,Honk Horn,Flash Lights,Unlock Trunk,Unlock Frunk"
+						return "Open Charge Port,Start Charging,Stop Charging,Start Climate,Stop Climate,Refresh,Honk Horn,Flash Lights,Unlock Trunk,Unlock Frunk,Unlock Doors,Lock Doors"
 					end,
 				defaultIcon = "https://raw.githubusercontent.com/reneboer/vera-TeslaCar/master/icons/TeslaCar.png" 
 				},
@@ -552,6 +552,10 @@ devSchema_Insert(SCHEMAS.TeslaCar, false, "DevMultiSwitch",
 								actID = "unlockFrunk"
 							elseif param == "Unlock Trunk" then
 								actID = "unlockTrunk"
+							elseif param == "Unlock Doors" then
+								actID = "unlockDoors"
+							elseif param == "Lock Doors" then
+								actID = "lockDoors"
 							elseif param == "Refresh" then
 								actID = "Poll"
 							end	
@@ -641,7 +645,7 @@ devSchema_Insert(SCHEMAS.HarmonyDev, true, "DevMultiSwitch",
 					return a_t
 				end} 
 	)
-devSchema_Insert(SCHEMAS.MSwitch, true, "DevMultiSwitch", {}, {})
+devSchema_Insert(SCHEMAS.MSwitch, true, "DevMultiSwitch", {}, {})		
 
 --[[Mapping between ImperiHome ISS and Vera device category and subcategory_num
 	Map definition has four parts:
