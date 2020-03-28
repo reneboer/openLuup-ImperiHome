@@ -27,8 +27,8 @@ Using the (free) Dataplicity option can get you remote access to ALTUI and via I
 
 First enable Dataplicity as documented on https://www.dataplicity.com and enable the wormhole option as described here http://docs.dataplicity.com/docs/host-a-website-from-your-pi. By going to https://[yourid].dataplicity.io should then get your default web page from your Pi.
 
-Next is to enable authentication and a redirect from port 80 to 3480 on your Pi.Now on your Pi you may need to add the proxy module for the Apache server.<br><code>sudo a2enmod proxysudo <br>
-a2enmod proxy_http</code><br>
+Next is to enable authentication and a redirect from port 80 to 3480 on your Pi.Now on your Pi you may need to add the proxy module for the Apache server.<br>
+<code>sudo a2enmod proxy_http</code><br>
 
 Now create a user id and password.<br>
 <code>sudo htpasswd -c /etc/apache2/passwords [name-of-user]</code>
