@@ -54,7 +54,7 @@ Scenes are supported.
 local luup = require "openLuup.luup"  -- Gives all Vera luup functionality
 local json = require "openLuup.json"
 
-local includeVeraBridge = true	-- When set to false the devices and scenes created via a VeraBridge will not be included.
+local includeVeraBridge = false	-- When set to false the devices and scenes created via a Vera/Ezlo Bridge will not be included.
 
 -- SIDs for devices we support
 local SIDS = {
