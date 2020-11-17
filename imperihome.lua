@@ -5,7 +5,7 @@ module(..., package.seeall)
 local _log
 
 --[[
-Version 1.7 14 February 2020
+Version 1.8 17 November 2020
 Author Rene Boer
 
 Standard Vera Device types in ISS we can handle right now
@@ -54,7 +54,7 @@ Scenes are supported.
 local luup = require "openLuup.luup"  -- Gives all Vera luup functionality
 local json = require "openLuup.json"
 
-local includeVeraBridge = false	-- When set to false the devices and scenes created via a VeraBridge will not be included.
+local includeVeraBridge = true	-- When set to false the devices and scenes created via a VeraBridge will not be included.
 
 -- SIDs for devices we support
 local SIDS = {
@@ -906,7 +906,8 @@ function ISS_GetRooms()
 	res.rooms[1] = rm
 	for rn, name in pairs(luup.rooms) do
 		-- Ignore the VeraBride created rooms
-		if includeVeraBridge or string.sub(name,1, 5) ~= "MiOS-" then
+		local npfx = string.sub(name,1, 5)
+		if includeVeraBridge or (npfx ~= "MiOS-" and npfx ~= "Ezlo-") then
 			local rm = {}
 			rm.id = tostring(rn)
 			rm.name = name
