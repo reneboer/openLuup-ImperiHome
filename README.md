@@ -1,3 +1,6 @@
+# No longer maintained.
+I no longer use Vera or openLuup to be able to maintain this repository.
+
 # openLuup-ImperiHome
 A LUA CGI file to make openLuup talk ImperiHome ISS. Upload imperihome.lua to the /etc./cmh-ludl/cgi folder of your openLuup device.
 
